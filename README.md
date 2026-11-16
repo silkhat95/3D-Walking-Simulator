@@ -75,6 +75,7 @@ Everything in the world is synthesized in real time through code without using a
 * **Code Style & AI Assistance / コード構成とAI利用について:**
   This is a personal hobby project. The source code prioritizes working functionality over clean formatting, contains minimal comments, and utilizes AI assistance in parts of the codebase and initial icon design.
   本作は個人趣味のプロジェクトです。動作することを優先しているためコード内のコメントは少なく、コードの一部および初期アイコンの作成にAIを活用しています。
+* **Code Signing / 電子署名:** Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
 ---
 
