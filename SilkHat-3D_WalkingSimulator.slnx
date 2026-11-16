@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="TrainSim.vcxproj" Id="ad10cf9d-91d1-4472-bb06-6d46db65a4b9" />
+</Solution>
