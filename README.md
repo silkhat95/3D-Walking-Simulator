@@ -26,12 +26,17 @@ Everything in the world is synthesized in real time through code without using a
 
 ## Download & Play / ダウンロードと遊び方
 
+> ** Notice / お知らせ:**  
+> An unsigned pre-release version (`v26.11.16-pre`) is currently available for download on the **Releases** page while we await code signing setup for the official release. Please note that Windows SmartScreen or Smart App Control may display a warning for this unsigned build.  
+> 現在、正式版の電子署名（コードサイニング）の準備中に伴い、**未署名版のプレリリース（`v26.11.16-pre`）**を **Releases** ページにて公開しています。未署名ビルドのため、起動時に Windows のセキュリティ警告が表示される場合がありますのであらかじめご了承ください。
+
 1. Open the **Releases** page of this repository.
    本リポジトリの **Releases** ページを開きます。
-2. Download the latest `SilkHat-3D_WalkingSimulator.zip` and extract it anywhere.
-   最新の `SilkHat-3D_WalkingSimulator.zip` をダウンロードし、任意のフォルダに解凍します。
+2. Download `SilkHat-3D_WalkingSimulator.zip` (currently `v26.11.16-pre`) and extract it anywhere.
+   `SilkHat-3D_WalkingSimulator.zip`（現在は `v26.11.16-pre`）をダウンロードし、任意のフォルダに解凍します。
 3. Run the `.exe` file to start.
    解凍したフォルダ内の `.exe` ファイルをダブルクリックして起動します。
+
 
 ### System Requirements / 動作環境
 
