@@ -1,0 +1,55 @@
+name: Build, Sign and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-sign:
+    runs-on: windows-latest
+
+    steps:
+      - name: リポジトリのコードを取得
+        uses: actions/checkout@v4
+
+      - name: MSBuildのセットアップ
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Release | x64 でビルドを実行
+        run: |
+          msbuild TrainSim.vcxproj /p:Configuration=Release /p:Platform=x64 /p:OutDir=build_out\
+
+      - name: 未署名のexeファイルを一時アップロード
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-trainsim
+          path: build_out/*.exe
+
+      - name: SignPathで公式コード署名を付与
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: 'あなたのSignPathプロジェクト名'
+          signing-policy-slug: 'release-signing'
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: 'signed-output'
+
+      - name: 署名済みexeをZIP圧縮してパッケージ化
+        run: |
+          mkdir release_pkg
+          copy signed-output\*.exe release_pkg\
+          copy README.md release_pkg\
+          Compress-Archive -Path release_pkg\* -DestinationPath SilkHat-3D_WalkingSimulator.zip
+
+      - name: GitHub ReleasesにZIPを公開
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SilkHat-3D_WalkingSimulator.zip
+          generate_release_notes: true
