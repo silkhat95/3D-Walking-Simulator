@@ -4017,6 +4017,66 @@ float ssaoAO(int2 ip, float d0, float2 fp)
 	return 1.0 - rtF.y * occ * 0.25 * fade;
 }
 
+// ---- 疑似レイトレーシング（画面内の深度バッファを使った光線追跡）----
+float3 pzWorldAt(int2 pix)
+{
+	float2 ndc = float2((pix.x + 0.5) * rtC.y * 2.0 - 1.0, 1.0 - (pix.y + 0.5) * rtC.z * 2.0);
+	float4 w = mul(float4(ndc, gDepth.Load(pix, 0), 1.0), invVp);
+	return w.xyz / w.w;
+}
+bool pzToPix(float3 p, out int2 pix, out float zv)
+{
+	pix = int2(0, 0); zv = 0.0;
+	float4 c = mul(float4(p, 1.0), vp);
+	if (c.w <= 0.001) return false;
+	float2 uv = float2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+	if (uv.x < 0.0 || uv.y < 0.0 || uv.x >= 1.0 || uv.y >= 1.0) return false;
+	pix = int2(uv * float2(1.0 / rtC.y, 1.0 / rtC.z));
+	zv = linZ(c.z / c.w);
+	return true;
+}
+float3 pzNormal(int2 ip, float3 p0)
+{
+	int2 lim = int2(1.0 / rtC.y, 1.0 / rtC.z) - 1;
+	float3 pr = pzWorldAt(min(ip + int2(1, 0), lim));
+	float3 pl = pzWorldAt(max(ip - int2(1, 0), int2(0, 0)));
+	float3 pd = pzWorldAt(min(ip + int2(0, 1), lim));
+	float3 pu = pzWorldAt(max(ip - int2(0, 1), int2(0, 0)));
+	float3 dx = (length(pr - p0) < length(p0 - pl)) ? (pr - p0) : (p0 - pl);
+	float3 dy = (length(pd - p0) < length(p0 - pu)) ? (pd - p0) : (p0 - pu);
+	float3 n = cross(dx, dy);
+	if (dot(n, n) < 1e-12) return float3(0.0, 1.0, 0.0);
+	n = normalize(n);
+	if (dot(n, camPos.xyz - p0) < 0.0) n = -n;
+	return n;
+}
+float pzShadow(float3 P, float3 L)
+{
+	[loop] for (int k = 0; k < 20; k++)
+	{
+		float3 q = P + L * (0.2 + 0.9 * (float)k);
+		int2 pix; float zv;
+		if (!pzToPix(q, pix, zv)) return 0.0;
+		float gap = zv - linZ(gDepth.Load(pix, 0));
+		if (gap > 0.1 && gap < 2.5) return 1.0;
+	}
+	return 0.0;
+}
+float4 pzReflect(float3 P, float3 R)
+{
+	float t = 0.3;
+	[loop] for (int k = 0; k < 24; k++)
+	{
+		float3 q = P + R * t;
+		int2 pix; float zv;
+		if (!pzToPix(q, pix, zv)) break;
+		float gap = zv - linZ(gDepth.Load(pix, 0));
+		if (gap > 0.0 && gap < 1.5) return float4(gColor.Load(int3(pix, 0)).rgb, 1.0);
+		t *= 1.17;
+	}
+	return float4(0.0, 0.0, 0.0, 0.0);
+}
+
 float4 pps(float4 pos : SV_Position) : SV_Target
 {
 	int2 ip = int2(pos.xy);
@@ -4065,6 +4125,24 @@ float4 pps(float4 pos : SV_Position) : SV_Target
 		}
 	}
 	if (dep0 < 0.99999 && rtF.y > 0.01) col *= ssaoAO(ip, dep0, pos.xy);
+	if (rtH.z > 0.5 && dep0 < 0.99999)
+	{
+		const float3 P = pzWorldAt(ip);
+		const float3 N = pzNormal(ip, P);
+		const float3 Vd = normalize(P - camPos.xyz);
+		const float sunK = saturate(sunDir.y * 6.0) * saturate(1.0 - env.x);
+		if (sunK > 0.001)
+		{
+			const float ndl = saturate(dot(N, sunDir.xyz));
+			if (ndl > 0.0) col *= 1.0 - 0.55 * ndl * sunK * pzShadow(P + N * 0.1, sunDir.xyz);
+		}
+		if (c0.a > 0.5)
+		{
+			const float4 rf = pzReflect(P + N * 0.1, reflect(Vd, N));
+			const float F = 0.04 + 0.96 * pow(1.0 - saturate(dot(N, -Vd)), 5.0);
+			col = lerp(col, rf.rgb, rf.a * F * 0.6);
+		}
+	}
 
 
 	if (rtF.w > 0.01)
@@ -4205,11 +4283,14 @@ static const GfxParam GFX[7] = {
 	{  5, 0.004f, 5, 3.0f, 8, 1, 3000, 1, 1, 1, 1,   4, 1.5f,  0.00f, 0.50f, 1, 2, 3, 2, 4, 0 },
 	{  6, 0.003f, 6, 3.5f, 6, 1, 3000, 1, 1, 1, 1,   4, 1.4f,  0.00f, 0.55f, 1, 2, 3, 2, 6, 1 },
 };
+// 疑似レイトレーシング: BVHの光線追跡は行わず、画面内の深度と色から影と反射を光線追跡する
+static const GfxParam GFX_PSEUDO = { 0, 0.000f, 0, 0.0f, 0, 0, 0, 1, 1, 2, 1, 0, 0.0f, 0.40f, 0.35f, 1, 2, 3, 2, 0, 0 };
+static bool g_pseudoRT = false;
 static int  g_gfx = 0;
 static bool g_hwRT = false;
 static bool g_swGpu = false;
 static bool g_useDXR = false, g_useDXC = false;
-static bool g_heavyReady = false, g_heavyFailed = false;   // 「最低」以降用のシェーダー/PSOを作成済みか・作成に失敗したか
+static bool g_heavyFailed = false;   // 「最低」以降用のシェーダー/PSOを作成済みか・作成に失敗したか
 static std::wstring g_gpuName, g_rtNote;
 
 
@@ -4660,54 +4741,85 @@ static bool createLitePSOs() {
 // ============================================================================
 // 「最低」以降のグラフィックレベル用シェーダーを、起動後にバックグラウンドで読み込む（コンパイル + PSO作成）。
 //  ・ワーカースレッドは「ステージング領域 g_bg」にしか書き込まない。ゲームが使っている g_pso* や g_useDXR 等には一切触れない
-//  ・読み込みが終わるまでは、メニューのグラフィックレベルは全てグレーアウトされ、選べない
-//  ・完了後にレベルを選ぶと、ensureHeavy() がステージング済みの PSO を差し替えるだけなので、一瞬で切り替わる
+//  ・段階1（疑似RTに必要な ps / pps と PSO）が終わった時点で疑似RTを使える。段階2（dn パス）は後から差し替える
+//  ・段階ごとに完成した PSO の組（g_setSW / g_setHW）を、フレーム毎に選んで使うだけなので、切り替えは一瞬
 // ============================================================================
 enum { BG_IDLE, BG_RUNNING, BG_DONE_OK, BG_DONE_FAIL };
 static std::atomic<int>  g_bgState{ BG_IDLE };
 static std::atomic<bool> g_bgCancel{ false };
 static std::thread g_bgThread;
 struct BgShaders {
-	Bytes vs, ovs, ps, pp, dn;     // SW フォールバック時のみ vs/ovs も作り直す（DXIL と DXBC は同じ PSO に混在できないため）
-	bool fellBack = false;         // HW RT 用シェーダーのコンパイルに失敗し、ソフトウェアRT用で作り直したか
-	ID3D12PipelineState* psoDepth = nullptr, * psoScene = nullptr, * psoGlass = nullptr, * psoPost = nullptr, * psoDn = nullptr;
+	Bytes vs, ovs, ps, pp, dn;        // 段階1・2: DXBC（SW / 疑似RT 用）
+	Bytes hps, hpp, hdn;              // 段階3: DXIL（HW RT 用）
 };
 static BgShaders g_bg;
+
+// 描画に使う PSO の組。SW組（疑似RT・SW-RT のレベル、DXBC）と HW組（HW-RT のレベル、DXIL）を別々に持つ
+struct PsoSet { ID3D12PipelineState* depth = nullptr, * scene = nullptr, * glass = nullptr, * post = nullptr, * dn = nullptr; };
+static PsoSet g_setSW, g_setHW;   // ワーカーが書き込んでから、対応するフラグを立てる（メインスレッドは、フラグを見てから読む）
+
 // 読み込み中（ワーカー実行中、または完了したがまだメインスレッドで回収していない）か
 static bool shaderLoading() { return g_bgThread.joinable(); }
 
+static std::atomic<bool> g_bgPseudoReady{ false };   // 段階1 完了: 疑似RTが使える
+static std::atomic<bool> g_bgSwDone{ false };        // 段階2 完了: SW-RT のレベルが使える（dn が作れなくても完了扱い）
+static std::atomic<bool> g_bgHwDone{ false };        // 段階3 完了: HW-RT のレベルが使える
+static std::atomic<bool> g_bgHwFailed{ false };      // 段階3 失敗: HW-RT を諦めた（SW-RT で続ける）
+static bool g_bgHwFailApplied = false;               // 段階3の失敗をメインスレッドで反映済みか
+
+static void relSet(PsoSet& s) { relPSO(s.depth); relPSO(s.scene); relPSO(s.glass); relPSO(s.post); relPSO(s.dn); }
+
+// 段階1: 疑似RT（最優先）。DXBC のみ（DXC が無くても動く）
+// 段階2: SW-RT のぼかし・グロー（dns, DXBC）
+// 段階3: HW-RT（DXIL）。HW-RT の GPU でだけ行い、失敗したら SW-RT で続ける
 static void bgLoadWorker() {
-	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   // ゲーム本体の描画を邪魔しない
 	BgShaders& b = g_bg;
-	bool dxr = g_useDXR;   // 開始時点の値だけを使う（メインスレッドは、完了を回収するまでこの値を変更しない）
-	const ShJob heavy[3] = { { kShader, "ps", "ps", &b.ps }, { kShader, "pps", "ps", &b.pp }, { kShader, "dns", "ps", &b.dn } };
-	bool ok = compileJobs(heavy, 3, dxr, true);
-	if (!ok && dxr && !g_bgCancel.load()) {
-		{ std::lock_guard<std::mutex> lk(g_errMtx); g_shaderErr.clear(); }
-		b.fellBack = true; dxr = false;
-		const ShJob all[5] = { { kShader, "vs", "vs", &b.vs }, { kHudShader, "ovs", "vs", &b.ovs },
-			{ kShader, "ps", "ps", &b.ps }, { kShader, "pps", "ps", &b.pp }, { kShader, "dns", "ps", &b.dn } };
-		ok = compileJobs(all, 5, false, true);
+	const bool hwWanted = g_useDXR;   // 開始時点の値（メインスレッドは、完了を回収するまで変えない）
+
+	auto mk = [](ID3D12RootSignature* rs, const Bytes& vs, const Bytes* ps, const D3D12_INPUT_ELEMENT_DESC* e, UINT ne, int bl, int dp, UINT sm, int nrt) {
+		return std::async(std::launch::async, [=, &vs]() {
+			SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+			return makePSO(rs, vs, ps, e, ne, bl, dp, sm, nrt);
+			});
+		};
+
+	// ---- 段階1（疑似RT）----
+	const ShJob sw1[4] = { { kShader, "vs", "vs", &b.vs }, { kHudShader, "ovs", "vs", &b.ovs },
+		{ kShader, "ps", "ps", &b.ps }, { kShader, "pps", "ps", &b.pp } };
+	if (!compileJobs(sw1, 4, false, true) || g_bgCancel.load()) { g_bgState.store(BG_DONE_FAIL); return; }
+	{
+		auto f0 = mk(g_rsScene, b.vs, nullptr, kElScene, 4, BL_MASK0, DP_LT_WRITE, 4, 2);
+		auto f1 = mk(g_rsScene, b.vs, &b.ps, kElScene, 4, BL_NONE, DP_LE_WRITE, 4, 2);
+		auto f2 = mk(g_rsScene, b.vs, &b.ps, kElScene, 4, BL_GLASS, DP_LT_NOWRITE, 4, 2);
+		auto f3 = mk(g_rsPost, b.ovs, &b.pp, nullptr, 0, BL_NONE, DP_NONE, 1, 1);
+		g_setSW.depth = f0.get(); g_setSW.scene = f1.get(); g_setSW.glass = f2.get(); g_setSW.post = f3.get();
 	}
-	if (ok && !g_bgCancel.load()) {
-		const Bytes& VS = b.fellBack ? b.vs : g_bVS;      // g_bVS / g_bOVS は読み取り専用で使う
-		const Bytes& OVS = b.fellBack ? b.ovs : g_bOVS;
-		auto mk = [](ID3D12RootSignature* rs, const Bytes& vs, const Bytes* ps, const D3D12_INPUT_ELEMENT_DESC* e, UINT ne, int bl, int dp, UINT sm, int nrt) {
-			return std::async(std::launch::async, [=, &vs]() {
-				SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
-				return makePSO(rs, vs, ps, e, ne, bl, dp, sm, nrt);
-				});
-			};
-		auto f0 = mk(g_rsScene, VS, nullptr, kElScene, 4, BL_MASK0, DP_LT_WRITE, 4, 2);
-		auto f1 = mk(g_rsScene, VS, &b.ps, kElScene, 4, BL_NONE, DP_LE_WRITE, 4, 2);
-		auto f2 = mk(g_rsScene, VS, &b.ps, kElScene, 4, BL_GLASS, DP_LT_NOWRITE, 4, 2);
-		auto f3 = mk(g_rsPost, OVS, &b.pp, nullptr, 0, BL_NONE, DP_NONE, 1, 1);
-		auto f4 = mk(g_rsPost, OVS, &b.dn, nullptr, 0, BL_NONE, DP_NONE, 1, 1);
-		b.psoDepth = f0.get(); b.psoScene = f1.get(); b.psoGlass = f2.get(); b.psoPost = f3.get(); b.psoDn = f4.get();
-		ok = b.psoDepth && b.psoScene && b.psoGlass && b.psoPost && b.psoDn;
+	if (!(g_setSW.depth && g_setSW.scene && g_setSW.glass && g_setSW.post)) { g_bgState.store(BG_DONE_FAIL); return; }
+	g_bgPseudoReady.store(true);
+
+	// ---- 段階2（SW-RT のぼかし・グロー）----
+	const ShJob dn1[1] = { { kShader, "dns", "ps", &b.dn } };
+	if (!g_bgCancel.load() && compileJobs(dn1, 1, false, true) && !g_bgCancel.load()) {
+		g_setSW.dn = mk(g_rsPost, b.ovs, &b.dn, nullptr, 0, BL_NONE, DP_NONE, 1, 1).get();
 	}
-	else ok = false;
-	g_bgState.store(ok ? BG_DONE_OK : BG_DONE_FAIL);
+	g_bgSwDone.store(true);
+	if (g_bgCancel.load() || !hwWanted) { g_bgState.store(BG_DONE_OK); return; }
+
+	// ---- 段階3（HW-RT、DXIL）----
+	const ShJob hw3[3] = { { kShader, "ps", "ps", &b.hps }, { kShader, "pps", "ps", &b.hpp }, { kShader, "dns", "ps", &b.hdn } };
+	bool ok = compileJobs(hw3, 3, true, true) && !g_bgCancel.load();
+	if (ok) {
+		auto h0 = mk(g_rsScene, g_bVS, nullptr, kElScene, 4, BL_MASK0, DP_LT_WRITE, 4, 2);
+		auto h1 = mk(g_rsScene, g_bVS, &b.hps, kElScene, 4, BL_NONE, DP_LE_WRITE, 4, 2);
+		auto h2 = mk(g_rsScene, g_bVS, &b.hps, kElScene, 4, BL_GLASS, DP_LT_NOWRITE, 4, 2);
+		auto h3 = mk(g_rsPost, g_bOVS, &b.hpp, nullptr, 0, BL_NONE, DP_NONE, 1, 1);
+		auto h4 = mk(g_rsPost, g_bOVS, &b.hdn, nullptr, 0, BL_NONE, DP_NONE, 1, 1);
+		g_setHW.depth = h0.get(); g_setHW.scene = h1.get(); g_setHW.glass = h2.get(); g_setHW.post = h3.get(); g_setHW.dn = h4.get();
+		ok = g_setHW.depth && g_setHW.scene && g_setHW.glass && g_setHW.post && g_setHW.dn;
+	}
+	if (ok) g_bgHwDone.store(true); else g_bgHwFailed.store(true);
+	g_bgState.store(BG_DONE_OK);
 }
 static void startShaderLoad() {
 	if (g_bgThread.joinable()) return;
@@ -4717,14 +4829,14 @@ static void startShaderLoad() {
 }
 // 毎フレーム、メインスレッドから呼ぶ。完了していたらスレッドを回収し、結果をゲーム側の状態に反映する（PSO はまだ適用しない）
 static void pollShaderLoad() {
+	// 段階3（HW-RT）が失敗したら、以後は SW-RT（DXBC）だけで動かす。段階3は段階2の後なので SW-RT は既に使える
+	if (g_bgHwFailed.load() && !g_bgHwFailApplied) {
+		g_bgHwFailApplied = true;
+		g_useDXC = g_useDXR = false; g_hwRT = false; g_rtNote = L"HW RT: シェーダーコンパイル失敗 (ソフトウェアBVHで動作)";
+	}
 	if (!g_bgThread.joinable() || g_bgState.load() == BG_RUNNING) return;
 	g_bgThread.join();
-	if (g_bgState.load() == BG_DONE_OK) {
-		if (g_bg.fellBack) {   // HW RT 用シェーダーが使えなかったので、以後はソフトウェアRTで動かす
-			g_useDXC = g_useDXR = false; g_hwRT = false; g_rtNote = L"HW RT: シェーダーコンパイル失敗 (ソフトウェアBVHで動作)";
-		}
-	}
-	else {
+	if (g_bgState.load() != BG_DONE_OK) {   // 段階1が失敗した。疑似RT・レベルは使えない
 		g_heavyFailed = true;
 		std::string e; { std::lock_guard<std::mutex> lk(g_errMtx); e = g_shaderErr; }
 		OutputDebugStringA(("バックグラウンドのシェーダー読み込みに失敗しました\n" + e).c_str());
@@ -4737,19 +4849,7 @@ static void shutdownShaderLoad() {
 		if (g_bgState.load() == BG_RUNNING) { gpuIdle(); ExitProcess(0); }
 		g_bgThread.join();
 	}
-	relPSO(g_bg.psoDepth); relPSO(g_bg.psoScene); relPSO(g_bg.psoGlass); relPSO(g_bg.psoPost); relPSO(g_bg.psoDn);
-}
-// 「最低」以降のグラフィックレベルが初めて選ばれた時に呼ぶ（呼ぶ前に GPU が止まっていること）。
-// 読み込み済みの PSO を差し替えるだけなので一瞬で終わる。成功したら true
-static bool ensureHeavy() {
-	if (g_heavyReady) return true;
-	if (g_heavyFailed || shaderLoading() || g_bgState.load() != BG_DONE_OK) return false;
-	relPSO(g_psoDepth); relPSO(g_psoScene); relPSO(g_psoGlass); relPSO(g_psoPost); relPSO(g_psoDn);
-	g_psoDepth = g_bg.psoDepth; g_psoScene = g_bg.psoScene; g_psoGlass = g_bg.psoGlass; g_psoPost = g_bg.psoPost; g_psoDn = g_bg.psoDn;
-	g_bg.psoDepth = g_bg.psoScene = g_bg.psoGlass = g_bg.psoPost = g_bg.psoDn = nullptr;
-	Bytes().swap(g_bg.vs); Bytes().swap(g_bg.ovs); Bytes().swap(g_bg.ps); Bytes().swap(g_bg.pp); Bytes().swap(g_bg.dn);
-	g_heavyReady = true;
-	return true;
+	relSet(g_setSW); relSet(g_setHW);
 }
 
 static void createTargets() {
@@ -5052,7 +5152,7 @@ struct HV { float x, y; Col c; };
 struct TItem { std::wstring s; int x, y, font; COLORREF col; UINT align; };
 static std::vector<HV> g_hv;
 static std::vector<TItem> g_tx;
-static float g_menuR[10][4] = {};
+static float g_menuR[11][4] = {};
 static float g_respR[4] = {};
 static bool  g_respHover = false;
 
@@ -5103,7 +5203,7 @@ struct HudInfo {
 	int rev = 1;
 	float tod = 15.0f; bool todFrozen = false;
 	int menuSel = 0;
-	int gfx = 0; bool hwRT = false, swGpu = false; std::wstring gpu, rtNote;
+	int gfx = 0; bool hwRT = false, swGpu = false; bool pseudo = false; bool pseudoUnlocked = false, rtUnlocked = false; std::wstring gpu, rtNote;
 	bool shaderLoading = false, shaderFailed = false;   // シェーダーをバックグラウンドで読み込み中 / 読み込みに失敗
 	bool mouseMode = false;
 	bool cabView = false;
@@ -5349,17 +5449,19 @@ static void buildHud(const HudInfo& in) {
 		hText(L"グラフィックレベル（レイトレーシングの強さ）", W / 2, y0 + 130 * S, 0, cGray, TA_CENTER);
 		for (int j = 0; j < 7; j++) {
 			const int k = 2 + j;
-			const bool dis = in.shaderLoading || (j >= 1 && in.shaderFailed) || (j == 4 && in.swGpu) || (j >= 5 && !in.hwRT);
+			const bool dis = (j >= 1 && in.shaderFailed) || (j == 4 && in.swGpu) || (j >= 5 && !in.hwRT);
+			const bool locked = (j >= 1 && !in.rtUnlocked);   // RT用の読み込みが終わるまで、「最低」以降は選べない
+			const bool off = dis || locked;
 			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 152 * S + j * 31 * S + (j >= 1 ? 22 * S : 0.0f), by1 = by0 + 27 * S;   // 「オフ」の下に注意書きの行ぶん空ける
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
-			bool sel = (in.menuSel == k) && !dis, active = (in.gfx == j);
-			hRect(bx0, by0, bx1, by1, dis ? Col{ 0.25f, 0.25f, 0.27f, 0.15f } : sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
-			if (in.shaderLoading) swprintf_s(buf, L"シェーダーを読み込んでいます...しばらくお待ちください。");   // 読み込み中は全レベルをグレーアウト
-			else if (j >= 1 && in.shaderFailed) swprintf_s(buf, L"× %s（シェーダーの読み込みに失敗したため選択不可）", GFX_NAME[j]);
+			bool sel = (in.menuSel == k) && !off, active = (in.gfx == j) && !in.pseudo;
+			hRect(bx0, by0, bx1, by1, off ? Col{ 0.25f, 0.25f, 0.27f, 0.15f } : sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
+			if (j >= 1 && in.shaderFailed) swprintf_s(buf, L"× %s（シェーダーの読み込みに失敗したため選択不可）", GFX_NAME[j]);
 			else if (dis) swprintf_s(buf, (j == 4) ? L"× %s（Direct3D 12 非対応GPUのため選択不可）" : L"× %s（RTコア非搭載のため選択不可）", GFX_NAME[j]);
+			else if (locked) swprintf_s(buf, L"× %s（読み込み中のため選択不可）", GFX_NAME[j]);
 			else swprintf_s(buf, L"%s %s%s", active ? L"●" : L"○", GFX_NAME[j], j == 0 ? L"（既定・シェーダー処理なし）" : L"");
-			hText(buf, W / 2, by0 + (dis ? 6 : 4) * S, dis ? 0 : 1, dis ? RGB(110, 110, 110) : cWhite, TA_CENTER);
-			if (j == 0) hText(L"レイトレーシングをオンにすると、読み込み中に短時間フリーズすることがあります。", W / 2, by1 + 4 * S, 0, RGB(255, 200, 90), TA_CENTER);
+			hText(buf, W / 2, by0 + (off ? 6 : 4) * S, off ? 0 : 1, off ? RGB(110, 110, 110) : cWhite, TA_CENTER);
+			if (j == 0) hText(in.shaderFailed ? L"シェーダーの読み込みに失敗しました" : !in.pseudoUnlocked ? L"疑似レイトレーシング用のシェーダーを読み込み中です" : !in.rtUnlocked ? L"RT用のシェーダーを読み込み中です。完了すると「最低」以降を選べます" : L"レイトレーシングをオンにすると、読み込み中に短時間フリーズすることがあります。", W / 2, by1 + 4 * S, 0, RGB(255, 200, 90), TA_CENTER);
 		}
 		hText(L"視点操作（追従・一人称視点）", W / 2, y0 + 400 * S, 0, cGray, TA_CENTER);
 		{
@@ -5370,6 +5472,17 @@ static void buildHud(const HudInfo& in) {
 			hRect(bx0, by0, bx1, by1, sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
 			swprintf_s(buf, L"%s マウスモード: %s", in.mouseMode ? L"●" : L"○", in.mouseMode ? L"ON（マウスで視点移動）" : L"OFF（I/J/K/Lキーで視点移動）");
 			hText(buf, W / 2, by0 + 4 * S, 1, cWhite, TA_CENTER);
+		}
+		{   // 疑似レイトレーシングのボタン
+			const int k = 10;
+			const bool pdis = in.shaderFailed || !in.pseudoUnlocked;
+			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 452 * S, by1 = by0 + 27 * S;
+			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
+			bool sel = (in.menuSel == k) && !pdis;
+			hRect(bx0, by0, bx1, by1, pdis ? Col{ 0.25f, 0.25f, 0.27f, 0.15f } : sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
+			if (pdis) swprintf_s(buf, in.shaderFailed ? L"× 疑似レイトレーシング（読み込み失敗のため選択不可）" : L"× 疑似レイトレーシング（読み込み中のため選択不可）");
+			else swprintf_s(buf, L"%s 疑似レイトレーシング: %s", in.pseudo ? L"●" : L"○", in.pseudo ? L"ON（画面内の光線追跡）" : L"OFF");
+			hText(buf, W / 2, by0 + (pdis ? 6 : 4) * S, pdis ? 0 : 1, pdis ? RGB(110, 110, 110) : cWhite, TA_CENTER);
 		}
 		hText((L"GPU: " + in.gpu).c_str(), W / 2, y0 + ph - 68 * S, 0, cGray, TA_CENTER);
 		hText(in.rtNote.c_str(), W / 2, y0 + ph - 50 * S, 0, cGray, TA_CENTER);
@@ -5436,7 +5549,16 @@ static float g_env[4] = { 0, 0, 0, 0 };
 static float g_sp0[4], g_sp1[4], g_spd[4], g_spp[4];
 
 
-static bool gfxOK(int j) { if (shaderLoading()) return false; if (j >= 1 && g_heavyFailed) return false; return j <= 3 || (j == 4 && !g_swGpu) || (j >= 5 && g_hwRT); }
+// 疑似RT用の処理（段階1）が終わり、疑似RTを選べるか
+static bool pseudoOK() { return !g_heavyFailed && g_bgPseudoReady.load(); }
+// 「最低」以降の読み込みが終わったか。HW-RT の GPU（段階3が失敗していない）は段階3、それ以外は段階2まで
+static bool rtUnlocked() { if (g_heavyFailed) return false; return g_hwRT ? g_bgHwDone.load() : g_bgSwDone.load(); }
+static bool gfxOK(int j) {
+	if (j == 0) return true;
+	if (!rtUnlocked()) return false;
+	if (g_hwRT) return j != 4 || !g_swGpu;   // HW-RT の GPU は全モード（WARP の「高」は除く）
+	return j <= 3 || (j == 4 && !g_swGpu);   // HW-RT が無い GPU は「最低」〜「高」
+}
 static void menuApply(int k, int sub = 0) {
 	if (k == 0) {
 		if (sub != 0) g_tod = fmod(g_tod + sub * 0.5 + 24.0, 24.0);
@@ -5449,12 +5571,13 @@ static void menuApply(int k, int sub = 0) {
 	}
 	else if (k == 1) g_todFrozen = !g_todFrozen;
 	else if (k == 9) g_mouseMode = !g_mouseMode;
-	else { int j = k - 2; if (gfxOK(j)) g_gfx = j; }
+	else if (k == 10) { if (pseudoOK()) g_pseudoRT = !g_pseudoRT; }
+	else { int j = k - 2; if (gfxOK(j)) { g_gfx = j; g_pseudoRT = false; } }
 }
 static void menuMove(int dir) {
 	int k = g_menuSel + dir;
 	while (k >= 2 && k <= 8 && !gfxOK(k - 2)) k += dir;
-	if (k >= 0 && k <= 9) g_menuSel = k;
+	if (k >= 0 && k <= 10) g_menuSel = k;
 }
 
 
@@ -5519,7 +5642,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 		}
 		if (g_pause) {
 			float mx = (float)(short)LOWORD(lp), my = (float)(short)HIWORD(lp);
-			for (int k = 0; k < 10; k++)
+			for (int k = 0; k < 11; k++)
 				if (mx >= g_menuR[k][0] && mx <= g_menuR[k][2] && my >= g_menuR[k][1] && my <= g_menuR[k][3]) {
 					if (k >= 2 && k <= 8 && !gfxOK(k - 2)) continue;
 					g_menuSel = k;
@@ -6857,31 +6980,29 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 			}
 		}
 		pollShaderLoad();   // バックグラウンドのシェーダー読み込みが終わっていれば回収する（適用はしない）
-		if (g_gfx != 0 && !g_heavyReady) {   // 「最低」以降が初めて選ばれた時に、読み込み済みの PSO を差し替える（コンパイル済みなので一瞬）
-			waitFence(g_frameFence);
-			if (!ensureHeavy()) {
-				MessageBoxA(nullptr, ("シェーダーのコンパイルに失敗しました。グラフィックレベルを「オフ」に戻します\n\n" + g_shaderErr.substr(0, 1800)).c_str(), "TrainSim", MB_OK);
-				g_gfx = 0;
-			}
-			else if (!gfxOK(g_gfx)) g_gfx = gfxOK(4) ? 4 : 3;   // ソフトウェアRTに切り替わった場合、HW RT専用のレベルは使えない
-			prevValid = false;
-			QueryPerformanceCounter(&t0);
-		}
-		if (g_gfx != 0 && !rtReady) {   // レイトレーシングをオンにした時だけ、BVH(またはBLAS/TLAS)を作る。ここで短時間止まる
+		// 選ばれたものを、いま使える範囲に丸める（未解禁のものは「オフ」の描画）
+		bool effPseudo = g_pseudoRT && pseudoOK();
+		int effGfx = (!effPseudo && g_gfx != 0 && gfxOK(g_gfx)) ? g_gfx : 0;
+		if (effGfx != 0 && !rtReady) {   // レイトレーシングのレベルを選んだ時だけ、BVH(またはBLAS/TLAS)を作る。ここで短時間止まる
 			waitFence(g_frameFence);
 			g_alloc->Reset(); g_cl->Reset(g_alloc, nullptr);
 			if (initRTScene(vWorld, rtV, world, rtMesh)) { rtReady = true; flushInit(); Verts().swap(vWorld); }
 			else {
 				flushInit();
 				MessageBoxW(nullptr, L"レイトレーシング用データの作成に失敗しました。グラフィックレベルを「オフ」に戻します", L"TrainSim", MB_OK);
-				g_gfx = 0;
+				g_gfx = 0; g_pseudoRT = false; effGfx = 0; effPseudo = false;
 			}
 			prevValid = false;   // 止まっていた間の時間が大きな dt にならないよう、時刻の基準をとり直す
 			QueryPerformanceCounter(&t0);
 		}
+		// 使う PSO の組: HW-RT のレベルだけ HW組（DXIL）、それ以外（疑似RT・SW-RT）は SW組（DXBC）
+		const bool useHw = effGfx != 0 && g_hwRT && g_bgHwDone.load();
+		const PsoSet& S = useHw ? g_setHW : g_setSW;
+		g_psoDepth = S.depth; g_psoScene = S.scene; g_psoGlass = S.glass; g_psoPost = S.post; g_psoDn = S.dn;
 		M4 vp = mul(lookAt(eye, at, { 0,1,0 }), perspective(1.0f, (float)g_w / g_h, 0.15f, 3000.0f));
-		const GfxParam& gp = GFX[g_gfx];
-		const bool lite = (g_gfx == 0);
+		GfxParam gp = effPseudo ? GFX_PSEUDO : GFX[effGfx];
+		if (!g_psoDn) gp.dnRad = 0.0f;   // dn パスがまだの間は、ぼかし・グローを省く（描画は止めない）
+		const bool lite = (effGfx == 0) && !effPseudo;
 		const bool camJump = !prevValid || g_cam != prevCam || fabsf(eye.x - prevEye.x) + fabsf(eye.y - prevEye.y) + fabsf(eye.z - prevEye.z) > 40.0f;
 
 		{
@@ -6970,6 +7091,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 		cb.rtF[0] = (float)fmod(timeAcc, 7200.0); cb.rtF[1] = gp.ssao; cb.rtF[2] = 1.1f; cb.rtF[3] = gp.bloom;
 		cb.rtG[0] = gp.shafts; cb.rtG[1] = gp.cloud; cb.rtG[2] = gp.detail; cb.rtG[3] = gp.water;
 		cb.rtH[0] = gp.vol; cb.rtH[1] = gp.bounce2;
+		cb.rtH[2] = effPseudo ? 1.0f : 0.0f; cb.rtH[3] = 0.0f;
 		for (int k = 0; k < 4; k++) { cb.roots[k] = g_rtRoots[k]; cb.triBase[k] = g_rtTriBase[k]; }
 		houseFillCB(cb, (float)fmod(timeAcc, 7200.0));
 		{
@@ -6999,7 +7121,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 		hi2.cabView = (g_cam == 5 && g_fp.seat == 2); hi2.driving = false; hi2.cam = camNames[g_cam]; hi2.toast = toast; hi2.toastT = toastT;
 		hi2.pause = g_pause;
 		hi2.rev = 1; hi2.tod = (float)g_tod; hi2.todFrozen = g_todFrozen; hi2.menuSel = g_menuSel; hi2.mouseMode = g_mouseMode;
-		hi2.gfx = g_gfx; hi2.hwRT = g_hwRT; hi2.swGpu = g_swGpu; hi2.gpu = g_gpuName; hi2.rtNote = g_rtNote; hi2.shaderLoading = shaderLoading(); hi2.shaderFailed = g_heavyFailed;
+		hi2.gfx = g_gfx; hi2.pseudo = g_pseudoRT; hi2.pseudoUnlocked = pseudoOK(); hi2.rtUnlocked = rtUnlocked(); hi2.hwRT = g_hwRT; hi2.swGpu = g_swGpu; hi2.gpu = g_gpuName; hi2.rtNote = g_rtNote; hi2.shaderLoading = shaderLoading(); hi2.shaderFailed = g_heavyFailed;
 		hi2.hp = hp; hi2.dead = g_dead; hi2.hurt = hurtFlash;
 		hi2.ato = 0;
 		hi2.cross = (g_cam == 5 && !g_dead);
@@ -7028,7 +7150,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 		recordTextCopy();
 		ID3D12DescriptorHeap* heaps[] = { g_srvHeap };
 		g_cl->SetDescriptorHeaps(1, heaps);
-		if (g_useDXR && !lite) updateTLAS(rtCW, rtType, 4);
+		if (useHw && rtReady) updateTLAS(rtCW, rtType, 4);
 
 		const D3D12_VIEWPORT vpt = { 0, 0, (float)g_w, (float)g_h, 0, 1 };
 		const D3D12_RECT sci = { 0, 0, g_w, g_h };
