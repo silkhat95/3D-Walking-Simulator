@@ -3087,7 +3087,7 @@ cbuffer FrameCB : register(b1) {
 	float4 camPos;
 	float4 sunDir;
 	float4 env;
-	float4 sp0; float4 sp1; float4 spd; float4 spp;
+	float4 sp0[4]; float4 sp1[4]; float4 spd[4]; float4 spp;   // headlights per train (spd[h].w = 1 when active)
 	float4 rtA;
 	float4 rtB;
 	float4 rtC;
@@ -3101,7 +3101,7 @@ cbuffer FrameCB : register(b1) {
 	uint4 carType;
 	row_major float4x4 carW[4];
 	row_major float4x4 carInv[4];
-	float4 lampP[4];
+	float4 lampP[16];   // same as LAMP_HW_MAX (C++ side)
 	float4 lampI;
 	float4 flA;
 	float4 flB;
@@ -3531,12 +3531,12 @@ float3 shadeHit2(RHit h, float3 rd, float3 hp, float u1, float u2)
 
 )HLSL"
 R"HLSL(
-float spotL(float3 sp, float3 wp, float3 n)
+float spotL(float3 sp, float3 wp, float3 n, float3 dir)
 {
 	float3 L = sp - wp;
 	float dist = max(length(L), 0.001);
 	L /= dist;
-	float cd = dot(-L, spd.xyz);
+	float cd = dot(-L, dir);
 	float cone = saturate((cd - spp.y) / (spp.x - spp.y));
 	cone = cone * cone * (3.0 - 2.0 * cone);
 	float att = saturate(1.0 - dist / spp.z);
@@ -3548,7 +3548,7 @@ float spotL(float3 sp, float3 wp, float3 n)
 float3 lampLight(float3 wp, float3 n)
 {
 	float3 acc = float3(0, 0, 0);
-	[unroll] for (int k = 0; k < 4; k++)
+	[loop] for (int k = 0; k < 16; k++)
 	{
 		if (lampP[k].w > 0.5)
 		{
@@ -3796,14 +3796,21 @@ PSOut ps(VO i)
 			colNight = alb * (0.05 + 0.04 * saturate(n.y)) * float3(0.55, 0.65, 1.0);
 			if (env.y > 0.01)
 			{
-				float s0 = spotL(sp0.xyz, i.wp, n);
-				float s1 = spotL(sp1.xyz, i.wp, n);
-				if (rtD.y > 0.5 && rtOn)
+				float sSum = 0.0;
+				[loop] for (int h = 0; h < 4; h++)
 				{
-					if (s0 > 0.01) { float3 L = sp0.xyz - P; float dl = length(L); if (occluded(P, L / dl, dl - 0.4)) s0 = 0.0; }
-					if (s1 > 0.01) { float3 L = sp1.xyz - P; float dl = length(L); if (occluded(P, L / dl, dl - 0.4)) s1 = 0.0; }
+					if (spd[h].w < 0.5) continue;
+					float3 hd = spd[h].xyz;
+					float s0 = spotL(sp0[h].xyz, i.wp, n, hd);
+					float s1 = spotL(sp1[h].xyz, i.wp, n, hd);
+					if (rtD.y > 0.5 && rtOn)
+					{
+						if (s0 > 0.01) { float3 L = sp0[h].xyz - P; float dl = length(L); if (occluded(P, L / dl, dl - 0.4)) s0 = 0.0; }
+						if (s1 > 0.01) { float3 L = sp1[h].xyz - P; float dl = length(L); if (occluded(P, L / dl, dl - 0.4)) s1 = 0.0; }
+					}
+					sSum += s0 + s1;
 				}
-				colNight += alb * (s0 + s1) * float3(1.0, 0.95, 0.80) * env.y;
+				colNight += alb * sSum * float3(1.0, 0.95, 0.80) * env.y;
 				colNight += alb * flashLight(i.wp, n) * float3(1.0, 0.96, 0.85);
 			}
 		}
@@ -3920,7 +3927,13 @@ float4 psl(VO i) : SV_Target
 			colNight = alb * (0.05 + 0.04 * saturate(n.y)) * float3(0.55, 0.65, 1.0);
 			if (env.y > 0.01)
 			{
-				colNight += alb * (spotL(sp0.xyz, i.wp, n) + spotL(sp1.xyz, i.wp, n)) * float3(1.0, 0.95, 0.80) * env.y;
+				float sSum = 0.0;
+				[loop] for (int h = 0; h < 4; h++)
+				{
+					if (spd[h].w < 0.5) continue;
+					sSum += spotL(sp0[h].xyz, i.wp, n, spd[h].xyz) + spotL(sp1[h].xyz, i.wp, n, spd[h].xyz);
+				}
+				colNight += alb * sSum * float3(1.0, 0.95, 0.80) * env.y;
 				colNight += alb * flashLight(i.wp, n) * float3(1.0, 0.96, 0.85);
 			}
 		}
@@ -4320,13 +4333,19 @@ static const float SKY_DAY[4] = { 0.52f, 0.72f, 0.96f, 1 };
 
 struct Mesh { ID3D12Resource* res = nullptr; D3D12_VERTEX_BUFFER_VIEW vbv{}; UINT start = 0, n = 0; };
 
+// 前照灯を点灯する編成数 (視点に近い順)
+static const int HL_TRAIN_MAX = 4;
+// 光源数の上限 (端末のレイトレ方式で切り替え)
+static const int LAMP_SW_MAX = 8;    // ソフトウェアRT (Intel Iris Xe など) は 8 個
+static const int LAMP_HW_MAX = 16;   // ハードウェアRT (DXR 1.1 対応GPU) は 16 個 (シェーダー側 lampP[16] と一致させる)
+
 struct FrameCB {
 	M4 vp, invVp, prevVp;
-	float camPos[4], sunDir[4], env[4], sp0[4], sp1[4], spd[4], spp[4];
+	float camPos[4], sunDir[4], env[4], sp0[HL_TRAIN_MAX][4], sp1[HL_TRAIN_MAX][4], spd[HL_TRAIN_MAX][4], spp[4];
 	float rtA[4], rtB[4], rtC[4], rtD[4], rtE[4], rtF[4], rtG[4], rtH[4];
 	uint32_t roots[4], triBase[4], carType[4];
 	M4 carW[4], carInv[4];
-	float lampP[4][4];
+	float lampP[LAMP_HW_MAX][4];
 	float lampI[4];
 	float flA[4], flB[4], flC[4];
 	float hlO[4], hlRot[4];
@@ -5546,7 +5565,7 @@ static double nightSpan(double tod) {
 static int  g_menuSel = 0;
 static float g_gravScale = 1.0f;
 static float g_env[4] = { 0, 0, 0, 0 };
-static float g_sp0[4], g_sp1[4], g_spd[4], g_spp[4];
+static float g_sp0[HL_TRAIN_MAX][4], g_sp1[HL_TRAIN_MAX][4], g_spd[HL_TRAIN_MAX][4], g_spp[4];
 
 
 // 疑似RT用の処理（段階1）が終わり、疑似RTを選べるか
@@ -7029,16 +7048,27 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 
 		{
 			g_env[0] = nightF; g_env[1] = lampOnF; g_env[2] = g_env[3] = 0.0f;
-			int lt = -1; float lbd = 1e30f;
-			for (size_t ti = 0; ti < NTR; ti++) if (nearTr[ti] && g_rs.tr[ti].st != TS_YARD) { const M4& cm = trCW[ti * NUM_CARS]; const float dd = (cm.m[3][0] - eye.x) * (cm.m[3][0] - eye.x) + (cm.m[3][2] - eye.z) * (cm.m[3][2] - eye.z); if (dd < lbd) { lbd = dd; lt = (int)ti; } }
-			const M4 hm = (lt >= 0) ? trCW[(size_t)lt * NUM_CARS] : basisMat({ 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 }, { 0, -5000.0f, 0 });
-			V3 lfw = { hm.m[2][0], hm.m[2][1], hm.m[2][2] }, lc = { hm.m[3][0], hm.m[3][1], hm.m[3][2] };
-			V3 lamp = lc + V3{ 0, 1.44f, 0 } + lfw * 10.3f, lrt = rightOf(lfw);
-			V3 pL = lamp - lrt * 0.80f, pR = lamp + lrt * 0.80f;
-			V3 ld = norm(lfw + V3{ 0, -0.06f, 0 });
-			g_sp0[0] = pL.x; g_sp0[1] = pL.y; g_sp0[2] = pL.z; g_sp0[3] = 1;
-			g_sp1[0] = pR.x; g_sp1[1] = pR.y; g_sp1[2] = pR.z; g_sp1[3] = 1;
-			g_spd[0] = ld.x; g_spd[1] = ld.y; g_spd[2] = ld.z; g_spd[3] = 0;
+			// 前照灯: 回送・車庫内を除き、視点に近い順に最大 HL_TRAIN_MAX 編成の先頭車から出す
+			struct HlCand { float dd; size_t ti; };
+			std::vector<HlCand> hlc;
+			for (size_t ti = 0; ti < NTR; ti++) {
+				if (!nearTr[ti] || g_rs.tr[ti].st == TS_YARD) continue;
+				const M4& cm = trCW[ti * NUM_CARS];
+				const float dd = (cm.m[3][0] - eye.x) * (cm.m[3][0] - eye.x) + (cm.m[3][2] - eye.z) * (cm.m[3][2] - eye.z);
+				hlc.push_back({ dd, ti });
+			}
+			std::sort(hlc.begin(), hlc.end(), [](const HlCand& a, const HlCand& b) { return a.dd < b.dd; });
+			for (int h = 0; h < HL_TRAIN_MAX; h++) {
+				if (h >= (int)hlc.size()) { g_spd[h][3] = 0.0f; continue; }   // 未使用の枠は無効
+				const M4 hm = trCW[hlc[h].ti * NUM_CARS];
+				V3 lfw = { hm.m[2][0], hm.m[2][1], hm.m[2][2] }, lc = { hm.m[3][0], hm.m[3][1], hm.m[3][2] };
+				V3 lamp = lc + V3{ 0, 1.44f, 0 } + lfw * 10.3f, lrt = rightOf(lfw);
+				V3 pL = lamp - lrt * 0.80f, pR = lamp + lrt * 0.80f;
+				V3 ld = norm(lfw + V3{ 0, -0.06f, 0 });
+				g_sp0[h][0] = pL.x; g_sp0[h][1] = pL.y; g_sp0[h][2] = pL.z; g_sp0[h][3] = 1;
+				g_sp1[h][0] = pR.x; g_sp1[h][1] = pR.y; g_sp1[h][2] = pR.z; g_sp1[h][3] = 1;
+				g_spd[h][0] = ld.x; g_spd[h][1] = ld.y; g_spd[h][2] = ld.z; g_spd[h][3] = 1;
+			}
 			g_spp[0] = 0.9925f; g_spp[1] = 0.9135f; g_spp[2] = 220.0f; g_spp[3] = 1.5f;
 		}
 
@@ -7095,18 +7125,35 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 		for (int k = 0; k < 4; k++) { cb.roots[k] = g_rtRoots[k]; cb.triBase[k] = g_rtTriBase[k]; }
 		houseFillCB(cb, (float)fmod(timeAcc, 7200.0));
 		{
-			int pick[4] = { -1, -1, -1, -1 }; float pd[4] = { 1e30f, 1e30f, 1e30f, 1e30f };
+			// 光源の選別: 前照灯の照射範囲に入っている光源を優先し、残りは視点から近い順に詰める。
+			// 上限は、ハードウェアRT端末 16 個 / ソフトウェアRT端末 8 個。
+			const int lampMax = g_hwRT ? LAMP_HW_MAX : LAMP_SW_MAX;
+			struct LampCand { int tier; float d2; int li; };
+			std::vector<LampCand> cands;
+			cands.reserve(g_lampPos.size());
 			for (int li = 0; li < (int)g_lampPos.size(); li++) {
-				V3 d = g_lampPos[li] - eye;
-				float d2 = d.x * d.x + d.y * d.y + d.z * d.z;
+				const V3 d = g_lampPos[li] - eye;
+				const float d2 = dot(d, d);
 				if (d2 > 60.0f * 60.0f) continue;
-				for (int s = 0; s < 4; s++) if (d2 < pd[s]) {
-					for (int t = 3; t > s; t--) { pd[t] = pd[t - 1]; pick[t] = pick[t - 1]; }
-					pd[s] = d2; pick[s] = li; break;
+				bool inBeam = false;
+				for (int h = 0; h < HL_TRAIN_MAX && !inBeam; h++) {
+					if (g_spd[h][3] < 0.5f) continue;
+					const V3 hd = { g_spd[h][0], g_spd[h][1], g_spd[h][2] };
+					for (int side = 0; side < 2 && !inBeam; side++) {
+						const float* sp = side ? g_sp1[h] : g_sp0[h];
+						const V3 v = g_lampPos[li] - V3{ sp[0], sp[1], sp[2] };
+						const float vl = sqrtf(dot(v, v));
+						inBeam = vl > 0.001f && vl < g_spp[2] && dot(v, hd) / vl > g_spp[1];
+					}
 				}
+				cands.push_back({ inBeam ? 0 : 1, d2, li });
 			}
-			for (int s = 0; s < 4; s++) {
-				if (pick[s] >= 0) { const V3& lp = g_lampPos[pick[s]]; cb.lampP[s][0] = lp.x; cb.lampP[s][1] = lp.y; cb.lampP[s][2] = lp.z; cb.lampP[s][3] = 1.0f; }
+			std::sort(cands.begin(), cands.end(), [](const LampCand& a, const LampCand& b) {
+				return a.tier != b.tier ? a.tier < b.tier : a.d2 < b.d2; });
+			const int nPick = std::min(lampMax, (int)cands.size());
+			for (int s = 0; s < nPick; s++) {
+				const V3& lp = g_lampPos[cands[s].li];
+				cb.lampP[s][0] = lp.x; cb.lampP[s][1] = lp.y; cb.lampP[s][2] = lp.z; cb.lampP[s][3] = 1.0f;
 			}
 			cb.lampI[0] = 0.10f + (1.7f - 0.10f) * lampOnF;
 		}
@@ -7133,7 +7180,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 		if (focusTr >= 0 && g_rs.tr[focusTr].onboard && infoT <= 0.0f) {
 			const Train& RT = g_rs.tr[focusTr]; wchar_t ib[128];
 			hi2.info.clear();
-			if (RT.st == TS_RUN || RT.st == TS_DWELL) { swprintf_s(ib, L"乗車中: %s (%s)  次は %s駅  %.0f km/h", TYPE_NAME[RT.type], RT.line == 0 ? L"下り" : L"上り", g_stations[g_order[RT.line][std::min(RT.pos, g_nStops - 1)]].name.c_str(), RT.v * 3.6f); }
+			if (RT.st == TS_RUN || RT.st == TS_DWELL) { swprintf_s(ib, L"乗車中: %s (%s)  次は%sです  %.0f km/h", TYPE_NAME[RT.type], RT.line == 0 ? L"下り" : L"上り", g_stations[g_order[RT.line][std::min(RT.pos, g_nStops - 1)]].name.c_str(), RT.v * 3.6f); }
 			else swprintf_s(ib, L"乗車中: %s  停車中", TYPE_NAME[RT.type]);
 			hi2.info.push_back(ib); hi2.infoT = 1.0f;
 		}
