@@ -452,10 +452,10 @@ struct RailSim {
 	int nextTrip[NLINE] = { 0, 0 };
 	int nextPull[NLINE] = { 0, 0 };
 	int fleet[NLINE] = { 10, 10 };
-	int yardOcc[NLINE][NYT][YCAP];
+	int yardOcc[NLINE][NYT][YCAP] = {};
 	int platRes[NLINE] = { -1, -1 };
-	unsigned char aspect[NTRK][64];
-	bool blockOcc[NTRK][64];
+	unsigned char aspect[NTRK][64] = {};
+	bool blockOcc[NTRK][64] = {};
 	float extraDwell[NLINE] = { 0, 0 };
 	TimeInfo ti[NLINE];
 	float pullReal[NLINE] = { 30, 30 };
@@ -4938,9 +4938,12 @@ static void hudResize() {
 	bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32; bi.bmiHeader.biCompression = BI_RGB;
 	void* bits = nullptr;
 	HBITMAP nb = CreateDIBSection(g_hdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-	SelectObject(g_hdc, nb);
-	if (g_dib) DeleteObject(g_dib);
-	g_dib = nb; g_bits = (unsigned char*)bits;
+	if (nb && bits) {
+		SelectObject(g_hdc, nb);
+		if (g_dib) DeleteObject(g_dib);
+		g_dib = nb; g_bits = (unsigned char*)bits;
+	}
+	else if (nb) DeleteObject(nb);
 
 	S = std::min(2.5f, std::max(0.75f, g_h / 720.0f));
 	SelectObject(g_hdc, GetStockObject(DEFAULT_GUI_FONT));
@@ -5450,11 +5453,12 @@ static void buildHud(const HudInfo& in) {
 	}
 
 	if (in.pause) {
-		float pw = 520 * S, ph = 552 * S, x0 = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
+		float pw = 520 * S, ph = 572 * S, x0 = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
 		hRect(x0, y0, x0 + pw, y0 + ph, Col{ 0.02f, 0.03f, 0.06f, 0.85f });
 		hText(L"一時停止中", W / 2, y0 + 12 * S, 2, cWhite, TA_CENTER);
+		hText(L"SilkHat 3D WalkingSimulator Ver.26.11.18", W / 2, y0 + 44 * S, 0, RGB(65, 105, 225), TA_CENTER);
 		for (int k = 0; k < 2; k++) {
-			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 56 * S + k * 36 * S, by1 = by0 + 30 * S;
+			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 76 * S + k * 36 * S, by1 = by0 + 30 * S;
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
 			bool sel = (in.menuSel == k);
 			hRect(bx0, by0, bx1, by1, sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
@@ -5465,13 +5469,13 @@ static void buildHud(const HudInfo& in) {
 			else swprintf_s(buf, L"%s 時刻のフリーズ: %s", in.todFrozen ? L"●" : L"○", in.todFrozen ? L"ON（時刻が止まっています）" : L"OFF（時刻が進みます）");
 			hText(buf, W / 2, by0 + 5 * S, 1, cWhite, TA_CENTER);
 		}
-		hText(L"グラフィックレベル（レイトレーシングの強さ）", W / 2, y0 + 130 * S, 0, cGray, TA_CENTER);
+		hText(L"グラフィックレベル（レイトレーシングの強さ）", W / 2, y0 + 150 * S, 0, cGray, TA_CENTER);
 		for (int j = 0; j < 7; j++) {
 			const int k = 2 + j;
 			const bool dis = (j >= 1 && in.shaderFailed) || (j == 4 && in.swGpu) || (j >= 5 && !in.hwRT);
 			const bool locked = (j >= 1 && !in.rtUnlocked);   // RT用の読み込みが終わるまで、「最低」以降は選べない
 			const bool off = dis || locked;
-			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 152 * S + j * 31 * S + (j >= 1 ? 22 * S : 0.0f), by1 = by0 + 27 * S;   // 「オフ」の下に注意書きの行ぶん空ける
+			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 172 * S + j * 31 * S + (j >= 1 ? 22 * S : 0.0f), by1 = by0 + 27 * S;   // 「オフ」の下に注意書きの行ぶん空ける
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
 			bool sel = (in.menuSel == k) && !off, active = (in.gfx == j) && !in.pseudo;
 			hRect(bx0, by0, bx1, by1, off ? Col{ 0.25f, 0.25f, 0.27f, 0.15f } : sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
@@ -5482,10 +5486,10 @@ static void buildHud(const HudInfo& in) {
 			hText(buf, W / 2, by0 + (off ? 6 : 4) * S, off ? 0 : 1, off ? RGB(110, 110, 110) : cWhite, TA_CENTER);
 			if (j == 0) hText(in.shaderFailed ? L"シェーダーの読み込みに失敗しました" : !in.pseudoUnlocked ? L"疑似レイトレーシング用のシェーダーを読み込み中です" : !in.rtUnlocked ? L"RT用のシェーダーを読み込み中です。完了すると「最低」以降を選べます" : L"レイトレーシングをオンにすると、読み込み中に短時間フリーズすることがあります。", W / 2, by1 + 4 * S, 0, RGB(255, 200, 90), TA_CENTER);
 		}
-		hText(L"視点操作（追従・一人称視点）", W / 2, y0 + 400 * S, 0, cGray, TA_CENTER);
+		hText(L"視点操作（追従・一人称視点）", W / 2, y0 + 420 * S, 0, cGray, TA_CENTER);
 		{
 			const int k = 9;
-			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 420 * S, by1 = by0 + 27 * S;
+			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 440 * S, by1 = by0 + 27 * S;
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
 			bool sel = (in.menuSel == k);
 			hRect(bx0, by0, bx1, by1, sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
@@ -5495,7 +5499,7 @@ static void buildHud(const HudInfo& in) {
 		{   // 疑似レイトレーシングのボタン
 			const int k = 10;
 			const bool pdis = in.shaderFailed || !in.pseudoUnlocked;
-			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 452 * S, by1 = by0 + 27 * S;
+			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 472 * S, by1 = by0 + 27 * S;
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
 			bool sel = (in.menuSel == k) && !pdis;
 			hRect(bx0, by0, bx1, by1, pdis ? Col{ 0.25f, 0.25f, 0.27f, 0.15f } : sel ? Col{ 0.30f, 0.65f, 1.0f, 0.55f } : Col{ 0.40f, 0.40f, 0.45f, 0.25f });
@@ -6551,6 +6555,7 @@ static void ledInit() {
 	BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); bi.bmiHeader.biWidth = LED_W; bi.bmiHeader.biHeight = -LED_H;
 	bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32; bi.bmiHeader.biCompression = BI_RGB;
 	g_ledBmp = CreateDIBSection(g_ledDC, &bi, DIB_RGB_COLORS, (void**)&g_ledBits, nullptr, 0);
+	if (!g_ledBmp || !g_ledBits) { g_led.resize(g_boardObjs.size()); return; }   // 失敗時はLEDを表示しない
 	SelectObject(g_ledDC, g_ledBmp);
 	g_ledFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, FIXED_PITCH | FF_MODERN, L"MS Gothic");
 	SelectObject(g_ledDC, g_ledFont);
@@ -6576,6 +6581,7 @@ static void boardText(int line, int stn, std::wstring txt[4]) {
 	if (rows[1].kind == 0 && rows[2].kind == 0 && rows[3].kind == 0) txt[2] = L"本日の運転は終了しました";
 }
 static void ledUpdate(int bi) {
+	if (!g_ledBits) return;
 	const BoardObj& B = g_boardObjs[bi]; LedBoard& L = g_led[bi];
 	std::wstring txt[4]; boardText(B.line, B.stn, txt);
 	unsigned h = 2166136261u; for (int i = 0; i < 4; i++) for (wchar_t c : txt[i]) { h ^= (unsigned)c; h *= 16777619u; }
@@ -6680,7 +6686,7 @@ static void showNextTrains(int mi, std::vector<std::wstring>& out) {
 	if (!shown) out.push_back(L"本日の運転は終了しました");
 }
 
-int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
+int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int) {
 	SetProcessDPIAware();
 	WNDCLASSEXW wc{ sizeof(wc) };
 	wc.lpfnWndProc = WndProc; wc.hInstance = hi; wc.hCursor = LoadCursor(nullptr, IDC_ARROW); wc.lpszClassName = L"TrainSimWnd";
