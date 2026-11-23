@@ -89,10 +89,14 @@ Everything in the world is synthesized in real time through code without using a
 1. Open `SilkHat-3D_WalkingSimulator.slnx` (or `TrainSim.vcxproj`) in **Visual Studio 2022** or later.
    
    Visual Studio 2022 以降で `SilkHat-3D_WalkingSimulator.slnx`（または `TrainSim.vcxproj`）を開きます。
-2. Set the solution configuration to **Release** and platform to **x64**.
+
+   
+3. Set the solution configuration to **Release** and platform to **x64**.
    
    構成を **Release**、プラットフォームを **x64** に設定します。
-3. Build the solution (`Ctrl + Shift + B`). Only the standard Windows SDK is required.
+
+   
+5. Build the solution (`Ctrl + Shift + B`). Only the standard Windows SDK is required.
    
    ソリューションをビルドします。標準の Windows SDK 以外の外部ライブラリは不要です。
 
@@ -105,7 +109,12 @@ Everything in the world is synthesized in real time through code without using a
   This is a personal hobby project. The source code prioritizes working functionality over clean formatting, contains minimal comments, and utilizes AI assistance in parts of the codebase and initial icon design.
   
   本作は個人趣味のプロジェクトです。動作することを優先しているためコード内のコメントは少なく、コードの一部およびアイコンにAIを活用しています。
-* **Code Signing / 電子署名:** Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+  
+- **Code Signing / 電子署名:** We are currently unable to provide code signing for this release. We will continue working to improve the project.
+   
+  現在、コード署名を準備できませんでした。引き続き、プロジェクトの改善を進めてまいります。
+
 
 ---
 
