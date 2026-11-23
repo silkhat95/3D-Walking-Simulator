@@ -27,13 +27,19 @@ Everything in the world is synthesized in real time through code without using a
 ## ✨ Features / 特徴
 
 * **100% Procedural World & Vehicles / 外部アセット不使用の完全リアルタイム合成**
+ 
   Terrain, city buildings (including furnished interiors), stations, LED departure boards, and detailed trains (interior seats, driver's cab, pantographs) are all procedurally generated in code without external textures or model files.
+  
   地形や街並み（家具付きのビル内装まで含む）、駅のLED発車標、車両の内外装に至るまで、外部素材を一切使わずプログラムだけで合成・描画しています。
 * **Hybrid Ray Tracing (DXR 1.1 & Software BVH) / ハイブリッド・レイトレーシング対応**
+ 
   Supports 7 graphics levels ranging from lightweight rasterization to hardware ray tracing (DXR 1.1) and custom software BVH ray tracing, complete with dynamic time-of-day lighting, reflections, and shadows.
+  
   軽量な通常描画から、ハードウェアレイトレーシング（DXR 1.1）および独自のソフトウェアBVHレイトレーシングまで7段階のグラフィック設定に対応し、時間帯による空や照明の変化を楽しめます。
 * **Autonomous Railway & Interactive Life / 自律運行ダイヤとインタラクティブ要素**
+ 
   Trains operate on a scheduled timetable with block signaling and railway crossings. You can ride trains, sit on seats, check departure boards, or interact with objects inside your house.
+  
   閉塞信号や踏切と連動した自動ダイヤで電車が運行しています。電車への乗降や着席、発車標の確認、さらには自宅内の照明や家電の操作も可能です。
 
 ---
@@ -81,10 +87,13 @@ Everything in the world is synthesized in real time through code without using a
 ## How to Build / ビルド方法（開発者向け）
 
 1. Open `SilkHat-3D_WalkingSimulator.slnx` (or `TrainSim.vcxproj`) in **Visual Studio 2022** or later.
+   
    Visual Studio 2022 以降で `SilkHat-3D_WalkingSimulator.slnx`（または `TrainSim.vcxproj`）を開きます。
 2. Set the solution configuration to **Release** and platform to **x64**.
+   
    構成を **Release**、プラットフォームを **x64** に設定します。
 3. Build the solution (`Ctrl + Shift + B`). Only the standard Windows SDK is required.
+   
    ソリューションをビルドします。標準の Windows SDK 以外の外部ライブラリは不要です。
 
 ---
@@ -92,8 +101,10 @@ Everything in the world is synthesized in real time through code without using a
 ## Notes / 開発に関する補足
 
 * **Code Style & AI Assistance / コード構成とAI利用について:**
+  
   This is a personal hobby project. The source code prioritizes working functionality over clean formatting, contains minimal comments, and utilizes AI assistance in parts of the codebase and initial icon design.
-  本作は個人趣味のプロジェクトです。動作することを優先しているためコード内のコメントは少なく、コードの一部および初期アイコンの作成にAIを活用しています。
+  
+  本作は個人趣味のプロジェクトです。動作することを優先しているためコード内のコメントは少なく、コードの一部およびアイコンにAIを活用しています。
 * **Code Signing / 電子署名:** Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
 ---
