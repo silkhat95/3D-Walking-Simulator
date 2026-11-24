@@ -5456,7 +5456,7 @@ static void buildHud(const HudInfo& in) {
 		float pw = 520 * S, ph = 572 * S, x0 = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
 		hRect(x0, y0, x0 + pw, y0 + ph, Col{ 0.02f, 0.03f, 0.06f, 0.85f });
 		hText(L"一時停止中", W / 2, y0 + 12 * S, 2, cWhite, TA_CENTER);
-		hText(L"SilkHat 3D WalkingSimulator Ver.26.11.18", W / 2, y0 + 44 * S, 0, RGB(65, 105, 225), TA_CENTER);
+		hText(L"SilkHat 3D WalkingSimulator Ver.26.11.24", W / 2, y0 + 44 * S, 0, RGB(65, 105, 225), TA_CENTER);
 		for (int k = 0; k < 2; k++) {
 			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 76 * S + k * 36 * S, by1 = by0 + 30 * S;
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
@@ -5676,6 +5676,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 					}
 				}
 		}
+		return 0;
+	case WM_RBUTTONDOWN:
+		g_interactReq = true;
 		return 0;
 	case WM_SIZE:
 		if (g_sc && wp != SIZE_MINIMIZED) onResize();
@@ -6211,11 +6214,11 @@ static void houseAim(V3 eye, V3 dir, float& best) {
 		};
 	for (const HTarget& T : H_TGT) if (hit(T.mn, T.mx)) {
 		g_aim = FPAim(); g_aim.valid = true; g_aim.kind = T.kind; g_aim.idx = T.idx;
-		if (T.kind == 11) g_aim.prompt = g_hs.roomOn[T.idx] ? L"[E] 電気を消す" : L"[E] 電気をつける";
-		else if (T.kind == 12) g_aim.prompt = g_hs.stoveOn ? L"[E] 火を消す" : L"[E] コンロに火をつける";
-		else if (T.kind == 13) g_aim.prompt = g_hs.lampOn ? L"[E] デスクランプを消す" : L"[E] デスクランプをつける";
-		else if (T.kind == 14) g_aim.prompt = g_hs.tapOn ? L"[E] 水を止める" : L"[E] 水を出す";
-		else g_aim.prompt = g_hs.pcOn ? L"[E] パソコンの画面を消す" : L"[E] パソコンの画面をつける";
+		if (T.kind == 11) g_aim.prompt = g_hs.roomOn[T.idx] ? L"[E/右クリック] 電気を消す" : L"[E/右クリック] 電気をつける";
+		else if (T.kind == 12) g_aim.prompt = g_hs.stoveOn ? L"[E/右クリック] 火を消す" : L"[E/右クリック] コンロに火をつける";
+		else if (T.kind == 13) g_aim.prompt = g_hs.lampOn ? L"[E/右クリック] デスクランプを消す" : L"[E/右クリック] デスクランプをつける";
+		else if (T.kind == 14) g_aim.prompt = g_hs.tapOn ? L"[E/右クリック] 水を止める" : L"[E/右クリック] 水を出す";
+		else g_aim.prompt = g_hs.pcOn ? L"[E/右クリック] パソコンの画面を消す" : L"[E/右クリック] パソコンの画面をつける";
 	}
 	for (int k = 0; k < H_NCHAIR; k++) {
 		const HChair& C = H_CHAIRS[k];
@@ -6223,13 +6226,13 @@ static void houseAim(V3 eye, V3 dir, float& best) {
 		const V3 fd = hzWDir({ 0, 0, C.s });
 		g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 5; g_aim.idx = k; g_aim.car = -1;
 		g_aim.sit = hzW({ C.x, C.yb + 0.47f, C.z + C.s * 0.02f }); g_aim.stand = hzW({ C.sx, C.yb + 0.02f, C.sz });
-		g_aim.yaw = atan2f(fd.x, fd.z); g_aim.prompt = L"[E] 椅子に座る";
+		g_aim.yaw = atan2f(fd.x, fd.z); g_aim.prompt = L"[E/右クリック] 椅子に座る";
 	}
 	if (hit({ -4.30f, 2.75f, -3.80f }, { -3.05f, 3.95f, -1.60f })) {
 		const V3 fd = hzWDir({ 0, 0, 1 });
 		g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 6; g_aim.car = -1;
 		g_aim.sit = hzW(H_BED_SIT); g_aim.stand = hzW(H_BED_STAND);
-		g_aim.yaw = atan2f(fd.x, fd.z); g_aim.prompt = L"[E] ベッドで寝る";
+		g_aim.yaw = atan2f(fd.x, fd.z); g_aim.prompt = L"[E/右クリック] ベッドで寝る";
 	}
 	for (int k = 0; k < NHD; k++) {
 		const bool open = g_hs.doorTgt[k] || g_hs.doorPos[k] > 0.05f;
@@ -6240,7 +6243,7 @@ static void houseAim(V3 eye, V3 dir, float& best) {
 			else { const bool a1 = hit({ -4.34f, y0, -3.20f }, { -4.14f, y1, -2.42f }); const bool a2 = hit({ -4.22f, y0, -3.78f }, { -3.62f, y1, -3.14f }); hh = a1 || a2; }
 			if (hh) {
 				g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 10; g_aim.idx = k;
-				g_aim.prompt = g_hs.doorTgt[k] ? ((k == 2) ? L"[E] 冷蔵室を閉める" : L"[E] 冷凍室を閉める") : ((k == 2) ? L"[E] 冷蔵室を開ける" : L"[E] 冷凍室を開ける");
+				g_aim.prompt = g_hs.doorTgt[k] ? ((k == 2) ? L"[E/右クリック] 冷蔵室を閉める" : L"[E/右クリック] 冷凍室を閉める") : ((k == 2) ? L"[E/右クリック] 冷蔵室を開ける" : L"[E/右クリック] 冷凍室を開ける");
 			}
 			continue;
 		}
@@ -6249,7 +6252,7 @@ static void houseAim(V3 eye, V3 dir, float& best) {
 		else { mn = { open ? 2.05f : 2.90f, 2.75f, -3.65f }; mx = { 3.25f, 4.90f, -2.60f }; }
 		if (hit(mn, mx)) {
 			g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 10; g_aim.idx = k;
-			g_aim.prompt = g_hs.doorTgt[k] ? L"[E] ドアを閉める" : L"[E] ドアを開ける";
+			g_aim.prompt = g_hs.doorTgt[k] ? L"[E/右クリック] ドアを閉める" : L"[E/右クリック] ドアを開ける";
 		}
 	}
 }
@@ -6300,7 +6303,7 @@ static void fpAim(const M4* cw, const M4* inv, float dl, float dr, const float* 
 					g_aim.sit = { sg * 0.97f, 1.42f, zc };
 					g_aim.stand = { sg * 0.42f, Y_FLOOR + 0.02f, zc };
 					g_aim.yaw = -sg * PI * 0.5f;
-					g_aim.prompt = L"[E] 座る";
+					g_aim.prompt = L"[E/右クリック] 座る";
 				}
 			}
 		}
@@ -6321,7 +6324,7 @@ static void fpAim(const M4* cw, const M4* inv, float dl, float dr, const float* 
 				g_aim.sit = { zs * -0.60f, 1.50f, zs * 8.38f };
 				g_aim.stand = { zs * -0.60f, 1.12f, zs * 8.88f };
 				g_aim.yaw = head ? 0.0f : PI;
-				g_aim.prompt = head ? L"[E] 運転席に座る" : L"[E] 運転台の椅子に座る";
+				g_aim.prompt = head ? L"[E/右クリック] 運転席に座る" : L"[E/右クリック] 運転台の椅子に座る";
 			}
 		}
 	}
@@ -6345,7 +6348,7 @@ static void fpAim(const M4* cw, const M4* inv, float dl, float dr, const float* 
 			if (t > 0.03f && g_colCar[gi].rayFirst(o, d, t - 0.03f) < 1e29f) continue;
 			best = t;
 			g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 20; g_aim.idx = idx; g_aim.car = i;
-			g_aim.prompt = g_cabTgt[idx] ? L"[E] 乗務員室ドアを閉める" : L"[E] 乗務員室ドアを開ける";
+			g_aim.prompt = g_cabTgt[idx] ? L"[E/右クリック] 乗務員室ドアを閉める" : L"[E/右クリック] 乗務員室ドアを開ける";
 		}
 	}
 
@@ -6370,7 +6373,7 @@ static void fpAim(const M4* cw, const M4* inv, float dl, float dr, const float* 
 			g_aim.sit = B.p + B.r * (-4.12f) + B.u * 2.16f + B.f * zc;
 			g_aim.stand = B.p + B.r * (-3.30f) + B.u * 1.69f + B.f * zc;
 			g_aim.yaw = atan2f(B.r.x, B.r.z);
-			g_aim.prompt = L"[E] ベンチに座る";
+			g_aim.prompt = L"[E/右クリック] ベンチに座る";
 		}
 		if (g_hs.valid) houseAim(eye, dir, best);
 	}
@@ -6985,7 +6988,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 					const V3 cp = eye + dv * tproj - g_markers[mi].pos;
 					if (dot(cp, cp) < 0.85f * 0.85f) { best = (int)mi; bt = tproj; }
 				}
-				if (best >= 0) { g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 30; g_aim.idx = best; g_aim.prompt = L"[E] 次の電車を確認する"; }
+				if (best >= 0) { g_aim = FPAim(); g_aim.valid = true; g_aim.kind = 30; g_aim.idx = best; g_aim.prompt = L"[E/右クリック] 次の電車を確認する"; }
 			}
 		}
 
@@ -7179,9 +7182,9 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 		hi2.ato = 0;
 		hi2.cross = (g_cam == 5 && !g_dead);
 		hi2.crossHot = (g_cam == 5 && !g_fp.seat && g_aim.valid);
-		if (g_cam == 5 && g_fp.seat) hi2.prompt = (g_fp.seat == 5) ? L"[E] 起き上がる" : (g_fp.seat == 2 ? L"[E] 立ち上がる    1:追従視点" : L"[E] 立ち上がる");
+		if (g_cam == 5 && g_fp.seat) hi2.prompt = (g_fp.seat == 5) ? L"[E/右クリック] 起き上がる" : (g_fp.seat == 2 ? L"[E/右クリック] 立ち上がる    1:追従視点" : L"[E/右クリック] 立ち上がる");
 		else if (g_cam == 5 && g_aim.valid) hi2.prompt = g_aim.prompt;
-		else if (g_cam != 5 && g_driverSeat) hi2.prompt = L"[E] 席を立つ    2:一人称視点";
+		else if (g_cam != 5 && g_driverSeat) hi2.prompt = L"[E/右クリック] 席を立つ    2:一人称視点";
 		hi2.info = infoLines; hi2.infoT = infoT;
 		if (focusTr >= 0 && g_rs.tr[focusTr].onboard && infoT <= 0.0f) {
 			const Train& RT = g_rs.tr[focusTr]; wchar_t ib[128];
