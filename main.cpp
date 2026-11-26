@@ -110,6 +110,127 @@ static const float TRAIN_LEN = NUM_CARS * CAR_LEN + (NUM_CARS - 1) * CAR_GAP;
 static const float CAR_Y = 0.58f;
 static const double DEPART_TOL = 3.0;
 
+// ---- 塗装。車両の形は全車共通で、色・帯・車番・前面の色だけを差し替える ----
+// base = 車体の基本色（帯の無い部分）、nose = 前面の角・先端の色、accent = 補助色、numCol = 車番の文字色
+// bands = 側面の帯（y0〜y1 の高さ、後に書いたものが上に重なる。本数の制限なし）
+struct LBand { float y0, y1; V3 c; };
+struct Livery { const char* name; const char* num; V3 base, nose, accent, numCol; std::vector<LBand> bands; };
+static const int NUM_LIV = 12;
+static const int LIV_BASE = 11;   // 幻想9210f（元の塗装。RT用の代理メッシュ・当たり判定もこれを使う）
+// 車番の文字: 数字と A、- はそのまま。K は ク、H は ハ（ｸﾊ の表記）
+static const Livery LIVERIES[NUM_LIV] = {
+	{ "近鉄1237系", "1235",
+	  { 0.93f, 0.91f, 0.84f },{ 0.78f, 0.08f, 0.12f },{ 0.78f, 0.08f, 0.12f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.63f, 3.03f,{ 0.78f, 0.08f, 0.12f } } } },
+	{ "北急8000系", "8003",
+	  { 0.96f, 0.94f, 0.88f },{ 0.55f, 0.08f, 0.14f },{ 0.55f, 0.08f, 0.14f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.52f, 1.78f,{ 0.55f, 0.08f, 0.14f } },{ 1.44f, 1.48f,{ 0.55f, 0.08f, 0.14f } } } },
+	{ "大阪メトロ30000系", "32150",
+	  { 0.76f, 0.78f, 0.81f },{ 0.85f, 0.12f, 0.15f },{ 0.95f, 0.95f, 0.96f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.72f, 1.80f,{ 0.85f, 0.12f, 0.15f } },{ 1.82f, 1.86f,{ 0.95f, 0.95f, 0.96f } },{ 1.88f, 1.98f,{ 0.90f, 0.35f, 0.40f } } } },
+	{ "東武8000系", "8103",
+	  { 0.94f, 0.95f, 0.97f },{ 0.10f, 0.40f, 0.75f },{ 0.35f, 0.65f, 0.85f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.50f, 1.85f,{ 0.10f, 0.40f, 0.75f } },{ 1.42f, 1.47f,{ 0.35f, 0.65f, 0.85f } } } },
+	{ "阪神5500系旧塗装", "5501",
+	  { 0.22f, 0.55f, 0.88f },{ 0.22f, 0.55f, 0.88f },{ 0.95f, 0.96f, 0.97f },{ 0.95f, 0.96f, 0.97f },
+	  { { -100.0f, 1.60f,{ 0.95f, 0.96f, 0.97f } },{ 1.60f, 1.66f,{ 0.10f, 0.30f, 0.70f } } } },
+	{ "阪神9000系", "9209",
+	  { 0.62f, 0.63f, 0.66f },{ 0.25f, 0.26f, 0.29f },{ 0.97f, 0.55f, 0.12f },{ 0.10f, 0.10f, 0.12f },
+	  { { -100.0f, 1.55f,{ 0.30f, 0.31f, 0.34f } },{ 1.55f, 1.75f,{ 0.97f, 0.55f, 0.12f } },{ 1.78f, 1.82f,{ 0.95f, 0.95f, 0.96f } } } },
+	{ "207系体質改善車", "KH207-1010",
+	  { 0.78f, 0.80f, 0.83f },{ 0.12f, 0.22f, 0.45f },{ 0.95f, 0.50f, 0.10f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.80f, 2.95f,{ 0.12f, 0.22f, 0.45f } },{ 1.72f, 1.78f,{ 0.95f, 0.50f, 0.10f } } } },
+	{ "321系", "KH321-34",
+	  { 0.78f, 0.80f, 0.83f },{ 0.08f, 0.20f, 0.45f },{ 0.95f, 0.50f, 0.10f },{ 0.10f, 0.10f, 0.12f },
+	  { { 1.55f, 2.85f,{ 0.08f, 0.20f, 0.45f } },{ 1.47f, 1.52f,{ 0.95f, 0.50f, 0.10f } } } },
+	{ "近鉄1A系", "1A103",
+	  { 0.12f, 0.33f, 0.60f },{ 0.12f, 0.25f, 0.50f },{ 0.78f, 0.80f, 0.83f },{ 0.95f, 0.96f, 0.98f },
+	  { { -100.0f, 1.45f,{ 0.92f, 0.93f, 0.95f } },{ 1.45f, 1.50f,{ 0.78f, 0.80f, 0.83f } } } },
+	{ "近鉄1257f", "1257",
+	  { 0.10f, 0.24f, 0.50f },{ 0.10f, 0.24f, 0.50f },{ 0.88f, 0.89f, 0.90f },{ 0.95f, 0.96f, 0.98f },
+	  { { 1.45f, 2.05f,{ 0.88f, 0.89f, 0.90f } } } },
+	{ "近鉄1021f", "1021",
+	  { 0.80f, 0.10f, 0.15f },{ 0.80f, 0.10f, 0.15f },{ 0.94f, 0.94f, 0.95f },{ 0.95f, 0.96f, 0.98f },
+	  { { -100.0f, 1.60f,{ 0.94f, 0.94f, 0.95f } } } },
+	{ "幻想9210f", "9210",
+	  { 0.80f, 0.82f, 0.85f },{ 0.13f, 0.33f, 0.86f },{ 0.97f, 0.52f, 0.10f },{ 0.10f, 0.10f, 0.12f },
+	  { { -100.0f, 1.52f,{ 0.13f, 0.33f, 0.86f } },{ 1.52f, 1.75f,{ 0.97f, 0.52f, 0.10f } } } },
+};
+
+// 側面の高さ範囲 [y0, y1] を、帯の境界で区切った区間ごとの色にする
+struct LSeg { float a, b; V3 c; };
+static std::vector<LSeg> liverySegs(const Livery& L, float y0, float y1) {
+	std::vector<float> cuts = { y0, y1 };
+	for (const LBand& bd : L.bands) {
+		if (bd.y0 > y0 && bd.y0 < y1) cuts.push_back(bd.y0);
+		if (bd.y1 > y0 && bd.y1 < y1) cuts.push_back(bd.y1);
+	}
+	std::sort(cuts.begin(), cuts.end());
+	std::vector<LSeg> out;
+	for (size_t k = 0; k + 1 < cuts.size(); k++) {
+		const float a = cuts[k], b = cuts[k + 1];
+		if (b - a <= 1e-4f) continue;
+		const float m = 0.5f * (a + b);
+		V3 col = L.base;
+		for (const LBand& bd : L.bands) if (m >= bd.y0 && m < bd.y1) col = bd.c;
+		out.push_back({ a, b, col });
+	}
+	return out;
+}
+
+// 運転室の前面の図柄（塗装ごと）。帯の延長ではなく、実車の前面を見て別に描いた図柄
+// 窓・ライト・中央のドアの部分には図柄を貼らない（描画側で除外する）
+struct FRect { float x0, x1, y0, y1; V3 c; };
+static std::vector<FRect> frontDesign(int li) {
+	const V3 red = { 0.78f, 0.08f, 0.12f }, maroon = { 0.55f, 0.08f, 0.14f }, white = { 0.95f, 0.96f, 0.98f };
+	const V3 navy = { 0.12f, 0.22f, 0.45f }, orange = { 0.95f, 0.50f, 0.10f }, silver = { 0.78f, 0.80f, 0.83f };
+	const V3 blue = { 0.10f, 0.40f, 0.75f }, grey = { 0.88f, 0.89f, 0.90f }, lblue = { 0.35f, 0.65f, 0.85f };
+	const V3 darkgrey = { 0.30f, 0.31f, 0.34f };
+	switch (li) {
+	case 0:   // 近鉄1237系：窓の周りを赤が回る
+		return { { -1.24f, 1.24f, 1.60f, 2.08f, red },{ -1.24f, -1.12f, 2.08f, 3.22f, red },{ 1.12f, 1.24f, 2.08f, 3.22f, red } };
+	case 1:   // 北急8000系：窓の下に濃い赤の細帯
+		return { { -1.24f, 1.24f, 1.50f, 1.78f, maroon } };
+	case 2:   // 大阪メトロ30000系：下の赤と白の帯
+		return { { -1.24f, 1.24f, 0.40f, 1.04f, red },{ -1.24f, 1.24f, 1.04f, 1.08f, white } };
+	case 3:   // 東武8000系：下の青帯
+		return { { -1.24f, 1.24f, 0.90f, 1.08f, blue },{ -1.24f, 1.24f, 0.84f, 0.90f, lblue } };
+	case 4:   // 阪神5500系旧塗装：下半分が白
+		return { { -1.24f, 1.24f, 0.40f, 1.46f, white } };
+	case 5:   // 阪神9000系：窓の下の橙帯
+		return { { -1.24f, 1.24f, 1.52f, 1.70f, orange },{ -1.24f, 1.24f, 1.72f, 1.76f, white } };
+	case 6:   // 207系体質改善車：窓の周りの紺と細い橙
+		return { { -1.24f, 1.24f, 1.80f, 2.08f, navy },{ -1.24f, -1.14f, 2.08f, 3.22f, navy },{ 1.14f, 1.24f, 2.08f, 3.22f, navy },
+				 { -1.24f, 1.24f, 1.72f, 1.78f, orange } };
+	case 7:   // 321系：窓の周りの紺と細い橙
+		return { { -1.24f, 1.24f, 1.55f, 2.08f, navy },{ -1.24f, -1.14f, 2.08f, 3.22f, navy },{ 1.14f, 1.24f, 2.08f, 3.22f, navy },
+				 { -1.24f, 1.24f, 1.47f, 1.52f, orange } };
+	case 8:   // 近鉄1A系：下半分が銀
+		return { { -1.24f, 1.24f, 0.40f, 1.10f, silver } };
+	case 9:   // 近鉄1257f：中ほどの灰色帯
+		return { { -1.24f, 1.24f, 1.45f, 2.05f, grey } };
+	case 10:  // 近鉄1021f：下半分が白
+		return { { -1.24f, 1.24f, 0.40f, 1.60f, white } };
+	default:  // 幻想9210f：図柄なし（曲線の角は別に描く）
+		(void)darkgrey;
+		return {};
+	}
+}
+
+// 起動時に一度だけシャッフルして、列車の通し番号に順番に塗装を割り当てる（全塗装が必ず一度は出る）
+static int g_livOrder[NUM_LIV];
+static bool g_livOrderReady = false;
+static int liveryForTrain(int id) {
+	if (!g_livOrderReady) {
+		for (int i = 0; i < NUM_LIV; i++) g_livOrder[i] = i;
+		std::random_device rdL;
+		std::mt19937 rngL(rdL());
+		std::shuffle(g_livOrder, g_livOrder + NUM_LIV, rngL);
+		g_livOrderReady = true;
+	}
+	return g_livOrder[id % NUM_LIV];
+}
+
 static V3 rightOf(V3 f) { return { f.z, 0, -f.x }; }
 
 static float trackHeightRaw(float s) {
@@ -427,6 +548,7 @@ static void railLayoutInit() {
 enum { TS_YARD, TS_PULL, TS_ORIGIN, TS_RUN, TS_DWELL, TS_TERM, TS_TOYARD };
 struct Train {
 	int id = 0, line = 0, type = TT_LOCAL;
+	int liv = 11;   // 塗装の番号（LIVERIES の添字。既定は幻想9210f）
 	int dir = 1; float s = 0.0f, v = 0.0f; int path = 0;
 	int st = TS_YARD; int trip = -1; int pos = 0;
 	int yTrk = 0, ySlot = 0;
@@ -871,7 +993,7 @@ static void railClearState(float startSec) {
 }
 static Train& addYardTrain(int line, int i) {
 	RailSim& R = g_rs;
-	Train t; t.id = (int)R.tr.size(); t.line = line; t.type = TT_LOCAL;
+	Train t; t.id = (int)R.tr.size(); t.line = line; t.type = TT_LOCAL; t.liv = liveryForTrain(t.id);
 	const int j = NYT - 1 - i / YCAP, k = YCAP - 1 - (i % YCAP);
 	const int side = g_yard[line].side;
 	t.dir = -side; t.s = wrapS(slotHeadInto(line, j, k) - (float)side * TRAIN_LEN); t.v = 0;
@@ -995,6 +1117,8 @@ static void railInit() {
 		refRun(l, true);
 		R.fleet[l] = std::min(NYT * YCAP, (int)ceil((R.ti[l].run + 32.0f + DWELL_MIN + 4.0f) / Hreal));
 	}
+	// 全塗装を必ず見られるよう、各路線の留置編成は最低 NUM_LIV / NLINE 本にする
+	for (int l = 0; l < NLINE; l++) R.fleet[l] = std::max(R.fleet[l], NUM_LIV / NLINE);
 	genTrips();
 
 	for (int it = 0; it < g_railCalIters; it++) {
@@ -1060,12 +1184,12 @@ struct PfDef { float a, b; int nf; int trk[2]; float edge[2]; int inward[2]; };
 static int stationPlatforms(int stn, PfDef* out) {
 	if (stn == 0) {
 		const float a0 = TRK_BASE[0] - BIG_SHIFT + PF_EDGE, b0 = TRK_BASE[1] - PF_EDGE, a1 = TRK_BASE[2] + PF_EDGE, b1 = TRK_BASE[3] + BIG_SHIFT - PF_EDGE;
-		out[0] = { a0, b0, 2, { 0, 1 }, { a0, b0 }, { 1, -1 } };
-		out[1] = { a1, b1, 2, { 2, 3 }, { a1, b1 }, { 1, -1 } };
+		out[0] = { a0, b0, 2,{ 0, 1 },{ a0, b0 },{ 1, -1 } };
+		out[1] = { a1, b1, 2,{ 2, 3 },{ a1, b1 },{ 1, -1 } };
 		return 2;
 	}
-	out[0] = { TRK_BASE[0] - PF_EDGE - SIDE_W, TRK_BASE[0] - PF_EDGE, 1, { 0, 0 }, { TRK_BASE[0] - PF_EDGE, 0 }, { -1, 0 } };
-	out[1] = { TRK_BASE[3] + PF_EDGE, TRK_BASE[3] + PF_EDGE + SIDE_W, 1, { 3, 3 }, { TRK_BASE[3] + PF_EDGE, 0 }, { 1, 0 } };
+	out[0] = { TRK_BASE[0] - PF_EDGE - SIDE_W, TRK_BASE[0] - PF_EDGE, 1,{ 0, 0 },{ TRK_BASE[0] - PF_EDGE, 0 },{ -1, 0 } };
+	out[1] = { TRK_BASE[3] + PF_EDGE, TRK_BASE[3] + PF_EDGE + SIDE_W, 1,{ 3, 3 },{ TRK_BASE[3] + PF_EDGE, 0 },{ 1, 0 } };
 	return 2;
 }
 static float bridgeS(const StationData& st) { return st.platformS0 + 6.0f; }
@@ -1079,14 +1203,14 @@ static bool inLeadZone(float s) {
 	return false;
 }
 
-static const std::vector<PPt> PF_BALLAST = { { -2.8f, -0.35f }, { 2.8f, -0.35f }, { 2.0f, 0.05f }, { 1.5f, 0.25f }, { -1.5f, 0.25f }, { -2.0f, 0.05f } };
+static const std::vector<PPt> PF_BALLAST = { { -2.8f, -0.35f },{ 2.8f, -0.35f },{ 2.0f, 0.05f },{ 1.5f, 0.25f },{ -1.5f, 0.25f },{ -2.0f, 0.05f } };
 static void buildBed(Verts& v, int pid, float s0, float s1) {
 	if (s1 < s0) std::swap(s0, s1);
 	const V3 b0 = { 0.50f, 0.48f, 0.45f };
 	const std::vector<V3> ecB = { b0 * 0.6f, b0 * 0.9f, b0 * 0.95f, b0, b0 * 0.95f, b0 * 0.9f };
 	sweepProfileF(v, PF_BALLAST, ecB, s0, s1, 4.0f, [pid](float s) { return pathLat(pid, s); }, 0.0f, true, b0);
 	const std::vector<PPt> pf = {
-		{ -0.10f, 0.32f }, { 0.10f, 0.32f }, { 0.03f, 0.40f }, { 0.03f, 0.47f }, { 0.07f, 0.52f }, { -0.07f, 0.52f }, { -0.03f, 0.47f }, { -0.03f, 0.40f } };
+		{ -0.10f, 0.32f },{ 0.10f, 0.32f },{ 0.03f, 0.40f },{ 0.03f, 0.47f },{ 0.07f, 0.52f },{ -0.07f, 0.52f },{ -0.03f, 0.47f },{ -0.03f, 0.40f } };
 	const V3 side = { 0.46f, 0.36f, 0.30f }, web = { 0.55f, 0.50f, 0.47f }, top = { 0.80f, 0.80f, 0.83f }, dark = { 0.30f, 0.28f, 0.27f };
 	const std::vector<V3> ec = { dark, side, web, side, top, side, web, side };
 	for (int sg = -1; sg <= 1; sg += 2) sweepProfileF(v, pf, ec, s0, s1, 6.0f, [pid, sg](float s) { return pathLat(pid, s) + 0.7175f * sg; }, 0.0f, false, web);
@@ -1125,14 +1249,14 @@ static void buildStation(Verts& v, int stn) {
 		const PfDef& P = pd[pi];
 		g_curE = 1.0f;
 		{
-			const std::vector<PPt> pf = { { P.a, -0.5f }, { P.b, -0.5f }, { P.b, 1.63f }, { P.b - 0.06f, 1.67f }, { P.a + 0.06f, 1.67f }, { P.a, 1.63f } };
+			const std::vector<PPt> pf = { { P.a, -0.5f },{ P.b, -0.5f },{ P.b, 1.63f },{ P.b - 0.06f, 1.67f },{ P.a + 0.06f, 1.67f },{ P.a, 1.63f } };
 			const std::vector<V3> ec = { cc * 0.6f, cc * 0.85f, cc * 0.95f, cc * 1.04f, cc * 0.95f, cc * 0.85f };
 			sweepProfileF(v, pf, ec, P0, P1, 2.0f, [](float) { return 0.0f; }, 0.0f, true, cc * 0.9f);
 		}
 		for (int f = 0; f < P.nf; f++) {
 			const float e = P.edge[f], in = (float)P.inward[f];
 			const float x0 = e + in * 0.05f, x1 = e + in * 0.45f;
-			const std::vector<PPt> pf = { { std::min(x0, x1), 1.665f }, { std::max(x0, x1), 1.665f }, { std::max(x0, x1), 1.70f }, { std::min(x0, x1), 1.70f } };
+			const std::vector<PPt> pf = { { std::min(x0, x1), 1.665f },{ std::max(x0, x1), 1.665f },{ std::max(x0, x1), 1.70f },{ std::min(x0, x1), 1.70f } };
 			const V3 y0 = { 0.95f, 0.85f, 0.10f };
 			const std::vector<V3> ec = { y0 * 0.7f, y0 * 0.85f, y0, y0 * 0.85f };
 			sweepProfileF(v, pf, ec, P0, P1, 2.0f, [](float) { return 0.0f; }, 0.0f, true, y0);
@@ -1178,7 +1302,7 @@ static void buildStation(Verts& v, int stn) {
 
 		const float R0 = P0 + 30.0f;
 		{
-			const std::vector<PPt> pf = { { P.a - 0.4f, 5.90f }, { P.b + 0.4f, 5.90f }, { P.b + 0.4f, 6.12f }, { P.a - 0.4f, 6.12f } };
+			const std::vector<PPt> pf = { { P.a - 0.4f, 5.90f },{ P.b + 0.4f, 5.90f },{ P.b + 0.4f, 6.12f },{ P.a - 0.4f, 6.12f } };
 			const std::vector<V3> ec = { roofc * 0.7f, roofc * 0.8f, roofc, roofc * 0.8f };
 			sweepProfileF(v, pf, ec, R0, P1, 6.0f, [](float) { return 0.0f; }, 0.0f, true, roofc * 0.8f);
 		}
@@ -1313,7 +1437,7 @@ static void buildCrossing(Verts& v, float sc) {
 	const V3 deckC = { 0.60f, 0.60f, 0.58f }, road = { 0.20f, 0.20f, 0.22f }, steel = { 0.55f, 0.57f, 0.58f };
 	g_curE = 0.0f;
 	{
-		const std::vector<PPt> pf = { { -11.4f, -0.5f }, { 11.4f, -0.5f }, { 11.4f, -0.17f }, { 8.4f, 0.47f }, { -8.4f, 0.47f }, { -11.4f, -0.17f } };
+		const std::vector<PPt> pf = { { -11.4f, -0.5f },{ 11.4f, -0.5f },{ 11.4f, -0.17f },{ 8.4f, 0.47f },{ -8.4f, 0.47f },{ -11.4f, -0.17f } };
 		const std::vector<V3> ec = { deckC * 0.6f, deckC * 0.9f, road * 1.2f, road * 1.4f, road * 1.2f, deckC * 0.9f };
 		sweepProfileF(v, pf, ec, sc - 3.0f, sc + 3.0f, 3.0f, [](float) { return 0.0f; }, 0.0f, true, deckC);
 	}
@@ -1414,7 +1538,7 @@ static Verts buildTrack() {
 				addBox(v, F.p + F.r * lt + F.u * 6.8f, F.r, F.u, F.f, { 0.03f, 0.30f, 0.03f }, steel);
 			}
 		}
-		const std::vector<PPt> wf = { { -0.015f, -0.015f }, { 0.015f, -0.015f }, { 0.015f, 0.015f }, { -0.015f, 0.015f } };
+		const std::vector<PPt> wf = { { -0.015f, -0.015f },{ 0.015f, -0.015f },{ 0.015f, 0.015f },{ -0.015f, 0.015f } };
 		const std::vector<V3> wc(4, wire);
 		for (int t = 0; t < NTRK; t++) {
 			sweepProfileF(v, wf, wc, 0.0f, LEN, 10.0f, [t](float s) { return baseLat(t, s) + 0.1f; }, 5.4f, false, wire);
@@ -1469,13 +1593,21 @@ static void addSideBox(Verts& v, float sg, float xa, float xb, float y0, float y
 }
 
 
+// 車体上部の丸み: Y_WIN1 より上は、半径 ROOF_R の円弧で屋根（y = ROOF_TOP）へつなぐ
+static const float ROOF_Y0 = 3.10f, ROOF_R = 0.40f, ROOF_CX = 1.00f;
 static void addLivery(Verts& v, float sg, float xa, float xb, float y0, float y1, float z0, float z1) {
+	if (y1 > ROOF_Y0) y1 = ROOF_Y0;   // 丸み部分は addRoofShell が受け持つ
 	const float yb[4] = { -100.0f, Y_BLUE1, Y_WHITE1, 100.0f };
 	const V3 cl[3] = { C_BLUE, C_ORANGE, C_SILVER };
 	for (int k = 0; k < 3; k++) {
 		float a = std::max(y0, yb[k]), b = std::min(y1, yb[k + 1]);
 		if (b - a > 1e-4f) addSideBox(v, sg, xa, xb, a, b, z0, z1, cl[k]);
 	}
+}
+// 塗装番号 li の帯で側面の箱を塗り分ける（ドア・運転室ドア用）
+static void addLiveryL(Verts& v, float sg, float xa, float xb, float y0, float y1, float z0, float z1, int li) {
+	if (y1 > ROOF_Y0) y1 = ROOF_Y0;
+	for (const LSeg& s : liverySegs(LIVERIES[li], y0, y1)) addSideBox(v, sg, xa, xb, s.a, s.b, z0, z1, s.c);
 }
 static void addTriV(Verts& v, V3 a, V3 b, V3 c, V3 col, V3 inside) {
 	V3 n = norm(cross(b - a, c - a));
@@ -1484,9 +1616,36 @@ static void addTriV(Verts& v, V3 a, V3 b, V3 c, V3 col, V3 inside) {
 	v.push_back({ a, n, col, g_curE }); v.push_back({ b, n, col, g_curE }); v.push_back({ c, n, col, g_curE });
 }
 
+// 屋根の丸い断面を車体全長に押し出す（両端は扇形のふた）
+static void addRoofShell(Verts& v) {
+	const int M = 10;
+	std::vector<V3> P;
+	for (int i = 0; i <= M; i++) {   // 右側の円弧: 側面 → 屋根
+		const float t = (PI * 0.5f) * i / M;
+		P.push_back({ ROOF_CX + ROOF_R * cosf(t), ROOF_Y0 + ROOF_R * sinf(t), 0.0f });
+	}
+	for (int i = 0; i <= M; i++) {   // 左側の円弧: 屋根 → 側面
+		const float t = PI * 0.5f + (PI * 0.5f) * i / M;
+		P.push_back({ -ROOF_CX + ROOF_R * cosf(t), ROOF_Y0 + ROOF_R * sinf(t), 0.0f });
+	}
+	const V3 inside = { 0.0f, ROOF_Y0 + 0.15f, 0.0f };
+	const int n = (int)P.size();
+	for (int i = 0; i < n; i++) {    // 底辺（y = ROOF_Y0）を含めて一周
+		const V3 a = P[i], b = P[(i + 1) % n];
+		const V3 a0 = { a.x, a.y, -10.0f }, b0 = { b.x, b.y, -10.0f };
+		const V3 a1 = { a.x, a.y, 10.0f }, b1 = { b.x, b.y, 10.0f };
+		addTriV(v, a0, b0, b1, C_SILVER, inside);
+		addTriV(v, a0, b1, a1, C_SILVER, inside);
+	}
+	for (const float ez : { -10.0f, 10.0f }) {
+		for (int i = 1; i + 1 < n; i++) {
+			addTriV(v, { P[0].x, P[0].y, ez }, { P[i].x, P[i].y, ez }, { P[i + 1].x, P[i + 1].y, ez }, C_SILVER, inside);
+		}
+	}
+}
 static void addHeart(Verts& v, V3 c, V3 r, V3 u, V3 n, float sc) {
 	const int N = 36;
-	const V3 pal[6] = { { 0.98f, 0.55f, 0.15f }, { 0.98f, 0.85f, 0.20f }, { 0.35f, 0.80f, 0.35f }, { 0.25f, 0.65f, 0.95f }, { 0.55f, 0.35f, 0.85f }, { 0.95f, 0.40f, 0.65f } };
+	const V3 pal[6] = { { 0.98f, 0.55f, 0.15f },{ 0.98f, 0.85f, 0.20f },{ 0.35f, 0.80f, 0.35f },{ 0.25f, 0.65f, 0.95f },{ 0.55f, 0.35f, 0.85f },{ 0.95f, 0.40f, 0.65f } };
 	auto H = [](float t, float& x, float& y) {
 		float s = sinf(t);
 		x = 16.0f * s * s * s;
@@ -1527,11 +1686,11 @@ static void addNumber(Verts& v, V3 c, V3 r, V3 u, V3 n, float dh, const char* s,
 
 struct GR { float x0, y0, x1, y1; };
 static const GR GLY_FU[] = {
-	{ 1,10.2f,11,11.2f }, { 3.4f,8.4f,4.4f,12 }, { 7.6f,8.4f,8.6f,12 }, { 1,7.2f,11,8.2f }, { 2.4f,5.0f,3.4f,7.4f }, { 8.6f,5.0f,9.6f,7.4f },
-	{ 2.4f,5.0f,9.6f,6.0f }, { 3.2f,3.2f,8.8f,4.2f }, { 3.2f,0.2f,8.8f,1.2f }, { 3.2f,1.7f,8.8f,2.7f }, { 3.2f,0.2f,4.2f,4.2f }, { 7.8f,0.2f,8.8f,4.2f } };
+	{ 1,10.2f,11,11.2f },{ 3.4f,8.4f,4.4f,12 },{ 7.6f,8.4f,8.6f,12 },{ 1,7.2f,11,8.2f },{ 2.4f,5.0f,3.4f,7.4f },{ 8.6f,5.0f,9.6f,7.4f },
+	{ 2.4f,5.0f,9.6f,6.0f },{ 3.2f,3.2f,8.8f,4.2f },{ 3.2f,0.2f,8.8f,1.2f },{ 3.2f,1.7f,8.8f,2.7f },{ 3.2f,0.2f,4.2f,4.2f },{ 7.8f,0.2f,8.8f,4.2f } };
 static const GR GLY_TSU[] = {
-	{ 0.4f,9.6f,1.7f,10.9f }, { 1.0f,2.6f,2.2f,9.2f }, { 1.0f,0.8f,11.6f,2.0f }, { 4.6f,10.6f,11.0f,11.6f }, { 5.0f,3.6f,6.0f,10.6f }, { 9.6f,3.6f,10.6f,10.6f },
-	{ 5.0f,7.6f,10.6f,8.6f }, { 5.0f,3.6f,10.6f,4.6f }, { 7.4f,3.6f,8.4f,10.6f } };
+	{ 0.4f,9.6f,1.7f,10.9f },{ 1.0f,2.6f,2.2f,9.2f },{ 1.0f,0.8f,11.6f,2.0f },{ 4.6f,10.6f,11.0f,11.6f },{ 5.0f,3.6f,6.0f,10.6f },{ 9.6f,3.6f,10.6f,10.6f },
+	{ 5.0f,7.6f,10.6f,8.6f },{ 5.0f,3.6f,10.6f,4.6f },{ 7.4f,3.6f,8.4f,10.6f } };
 
 static void addBar(Verts& v, V3 a, V3 b, float hx, float hy, V3 col) {
 	V3 d = b - a; float L = sqrtf(dot(d, d));
@@ -1540,21 +1699,25 @@ static void addBar(Verts& v, V3 a, V3 b, float hx, float hy, V3 col) {
 	addBox(v, (a + b) * 0.5f, r, u, f, { hx, hy, L * 0.5f }, col);
 }
 static void addPantograph(Verts& v) {
+	// 下枠交差式の菱形パンタグラフ。下枠（台座→中間）は X 字に交差し、上枠（中間→上の支点）は交差させず平行に立ち上げる
 	const V3 cIns = { 0.84f, 0.82f, 0.76f }, cBase = { 0.28f, 0.30f, 0.33f }, cArm = { 0.58f, 0.60f, 0.64f }, cStrip = { 0.10f, 0.10f, 0.11f };
 	for (int sx = -1; sx <= 1; sx += 2) for (int k = 0; k < 2; k++) {
-		float z = 7.15f + k * 1.0f;
+		const float z = 7.15f + k * 1.0f;
 		addBoxR(v, sx * 0.50f - 0.06f, sx * 0.50f + 0.06f, 3.70f, 3.82f, z - 0.06f, z + 0.06f, cIns);
 	}
 	addBoxR(v, -0.62f, 0.62f, 3.82f, 3.88f, 7.00f, 8.30f, cBase);
-	const V3 P0 = { 0.0f, 3.90f, 8.05f }, E = { 0.0f, 4.66f, 7.35f }, C = { 0.0f, 4.78f, 7.85f };
-	addBar(v, P0, E, 0.045f, 0.03f, cArm);
-	addBar(v, E, C, 0.040f, 0.03f, cArm);
-	addBoxR(v, -0.07f, 0.07f, E.y - 0.06f, E.y + 0.06f, E.z - 0.07f, E.z + 0.07f, cBase);
-	addBoxR(v, -0.07f, 0.07f, 3.88f, 3.98f, P0.z - 0.07f, P0.z + 0.07f, cBase);
-	addBoxR(v, -0.58f, 0.58f, 4.76f, 4.80f, C.z - 0.05f, C.z + 0.05f, cArm);
-	addBoxR(v, -0.52f, 0.52f, 4.80f, 4.83f, C.z - 0.045f, C.z + 0.045f, cStrip);
-	for (int sx = -1; sx <= 1; sx += 2)
-		addBoxR(v, sx * 0.52f - 0.02f, sx * 0.52f + 0.02f, 4.78f, 4.92f, C.z - 0.045f, C.z + 0.045f, cArm);
+	const V3 BL = { 0.0f, 3.92f, 7.25f }, BR = { 0.0f, 3.92f, 8.05f };   // 台座の支点
+	const V3 ML = { 0.0f, 4.45f, 7.40f }, MR = { 0.0f, 4.45f, 7.90f };   // 中間の交点
+	const V3 TL = { 0.0f, 4.96f, 7.25f }, TR = { 0.0f, 4.96f, 8.05f };   // 上の支点
+	addBar(v, BL, MR, 0.040f, 0.030f, cArm);
+	addBar(v, BR, ML, 0.040f, 0.030f, cArm);
+	addBar(v, ML, TL, 0.040f, 0.030f, cArm);   // 上枠は交差させない
+	addBar(v, MR, TR, 0.040f, 0.030f, cArm);
+	addBar(v, TL, TR, 0.035f, 0.030f, cArm);   // 上の支点どうしを渡す舟体の台
+	const V3 joints[6] = { BL, BR, ML, MR, TL, TR };
+	for (const V3& j : joints) addBoxR(v, j.x - 0.05f, j.x + 0.05f, j.y - 0.05f, j.y + 0.05f, j.z - 0.05f, j.z + 0.05f, cBase);
+	addBoxR(v, -0.58f, 0.58f, 5.00f, 5.05f, 7.45f, 7.75f, cArm);          // 舟体（車幅方向に渡す）
+	addBoxR(v, -0.52f, 0.52f, 5.05f, 5.08f, 7.49f, 7.71f, cStrip);        // すり板
 }
 
 struct Opening { float z0, z1; int kind; };
@@ -1603,7 +1766,7 @@ static void addPrismX(Verts& v, float zs, const float (*pf)[2], int n, float x0,
 		for (int i = 1; i + 1 < n; i++) addTriV(v, P(0, x), P(i, x), P(i + 1, x), col, inside);
 	}
 }
-static const float APRON[5][2] = { { 0.00f, 0.93f }, { 0.24f, 0.74f }, { 0.24f, 0.44f }, { 0.06f, 0.38f }, { 0.00f, 0.38f } };
+static const float APRON[5][2] = { { 0.00f, 0.93f },{ 0.24f, 0.74f },{ 0.24f, 0.44f },{ 0.06f, 0.38f },{ 0.00f, 0.38f } };
 
 
 static void addCabFace(Verts& v, float zs, V3 lamp) {
@@ -1688,7 +1851,7 @@ static void addCabFace(Verts& v, float zs, V3 lamp) {
 	}
 
 	{
-		g_curE = 0.0f; zb(-1.08f, -0.40f, 2.90f, 3.10f, 0.02f, 0.03f, { 0.03f, 0.04f, 0.06f });
+		g_curE = 0.0f; zb(-1.10f, -0.42f, 2.92f, 3.10f, 0.02f, 0.03f, { 0.03f, 0.04f, 0.06f });
 		g_curE = 1.0f;
 		const V3 wh = { 0.96f, 0.97f, 1.0f };
 		auto glyph = [&](const GR* g, int n, float xg, float yg, float gs) {
@@ -1794,7 +1957,7 @@ static void addCabInterior(Verts& v, float zs) {
 		cb(x - 0.008f, x + 0.008f, 2.00f, 2.045f, z - 0.008f, z + 0.008f, lc);
 	}
 	cb(0.82f, 1.20f, 1.90f, 1.97f, 9.20f, 9.85f, cPanel);
-	const V3 lampCols[4] = { { 0.9f, 0.2f, 0.2f }, { 0.95f, 0.8f, 0.2f }, { 0.2f, 0.85f, 0.3f }, { 0.9f, 0.9f, 0.92f } };
+	const V3 lampCols[4] = { { 0.9f, 0.2f, 0.2f },{ 0.95f, 0.8f, 0.2f },{ 0.2f, 0.85f, 0.3f },{ 0.9f, 0.9f, 0.92f } };
 	for (int k = 0; k < 4; k++) for (int j = 0; j < 3; j++) {
 		float x = 0.88f + k * 0.08f, z = 9.30f + j * 0.20f;
 		cb(x - 0.025f, x + 0.025f, 1.97f, 1.99f, z - 0.025f, z + 0.025f, lampCols[k]);
@@ -1861,7 +2024,874 @@ static std::vector<Opening> makeOpenings(bool head, bool tail) {
 	return ops;
 }
 
-static Verts buildCarBody(bool head, bool tail) {
+namespace v3car {
+
+	// ---- 車両の形（作り直し版）。ゲームの描画フラグ g_curE を使い、扉ガラスと前面の窓は別メッシュに任せる ----
+	// ---------- 寸法 (m) ----------
+	static const float CAR_HL = 10.0f;                 // 車体の半長（前後端の z）
+	static const float XO = 1.40f, XI = 1.36f;         // 側面の外側 x と、板の内側 x
+	static const float Y_BOT = 0.90f;                  // 車体の下端
+	static const float Y_FLOOR = 1.10f;                // 床面（ドア開口の下端）
+	static const float Y_WIN0 = 2.00f, Y_WIN1 = 3.10f; // 窓の下端・上端（上端は屋根の丸みの下端）
+	static const float R_ROOF = 0.40f;                 // 屋根の角の丸み半径
+	static const float X_ROOF = XO - R_ROOF;           // 丸みの中心 x（= 1.00）
+	static const float Y_ROOF = Y_WIN1 + R_ROOF;       // 屋根の上面（= 3.50）
+	static const float DOOR_HW = 0.65f;                // ドア開口の半幅
+	static const float DOOR_Z[3] = { -6.0f, 0.0f, 6.0f };
+	static const float BOGIE_Z = 7.0f;                 // 台車の中心 z（±）
+	static const float PANE_EPS = 0.01f;
+
+	// ---------- 色 ----------
+	static V3 C_BLUE = { 0.13f, 0.33f, 0.86f };     // 下の帯（塗装で差し替え）
+	static V3 C_ORANGE = { 0.97f, 0.52f, 0.10f };   // 中の帯（塗装で差し替え）
+	static V3 C_SILVER = { 0.80f, 0.82f, 0.85f };   // 上部（塗装で差し替え）
+	static const Livery* V_LIV = &LIVERIES[LIV_BASE];   // 今の塗装
+	static const V3 C_UNDER = { 0.14f, 0.14f, 0.16f };
+	static const V3 C_EQ = { 0.52f, 0.55f, 0.56f };
+	static const V3 C_DARK = { 0.15f, 0.17f, 0.20f };
+	static const V3 C_HOOD = { 0.22f, 0.23f, 0.25f };
+	static const V3 C_FLOOR = { 0.50f, 0.47f, 0.42f };
+	static const V3 C_CEIL = { 0.90f, 0.90f, 0.88f };
+	static const V3 C_SEAT = { 0.20f, 0.42f, 0.55f };
+	static const V3 C_SEAT2 = { 0.17f, 0.36f, 0.48f };
+	static const V3 C_POLE = { 0.75f, 0.76f, 0.78f };
+	static const V3 C_LAMP = { 1.00f, 0.95f, 0.75f };
+	static const V3 C_SIGN = { 0.06f, 0.06f, 0.08f };
+	static const V3 C_BOGIE = { 0.16f, 0.17f, 0.20f };
+	static const V3 C_WHEEL = { 0.20f, 0.20f, 0.22f };
+	static const V3 C_AC = { 0.80f, 0.80f, 0.78f };
+	static const V3 C_BASE = { 0.28f, 0.30f, 0.33f };
+	static const V3 C_INS = { 0.84f, 0.82f, 0.76f };
+	static const V3 C_ARM = { 0.58f, 0.60f, 0.64f };
+	static const V3 C_STRIP = { 0.10f, 0.10f, 0.11f };
+	static const V3 C_HORN = { 0.95f, 0.78f, 0.20f };   // 角の先端（黄色）
+	static const V3 C_HUB = { 0.70f, 0.72f, 0.75f };   // 車輪の外側の輪
+	static const V3 C_MOTOR = { 0.28f, 0.28f, 0.31f };   // 車軸
+	static const V3 C_PANE = { 0.62f, 0.84f, 0.96f };   // 側面の窓
+	static const V3 C_GLASS = { 0.10f, 0.15f, 0.22f };   // 前面の窓（運転室）
+	static const V3 C_GLASS2 = { 0.15f, 0.20f, 0.28f };
+	static const V3 C_PANE_CAB = { 0.62f, 0.84f, 0.96f };
+	static const V3 C_LINER = { 0.88f, 0.87f, 0.82f };
+	static const V3 C_WSC = { 0.12f, 0.19f, 0.25f };
+
+	// ---------- 図形の部品 ----------
+
+	// 三角形（法線は inside の反対側を向くように決める。閉じた形の内側の点を渡す）
+	static void v3_addTri(Verts& v, V3 a, V3 b, V3 c, V3 col, V3 inside) {
+		V3 n = norm(cross(b - a, c - a));
+		const V3 cen = (a + b + c) * (1.0f / 3.0f);
+		if (dot(n, cen - inside) < 0.0f) n = n * -1.0f;
+		v.push_back({ a, n, col, g_curE });
+		v.push_back({ b, n, col, g_curE });
+		v.push_back({ c, n, col, g_curE });
+	}
+
+	// 四角形（法線を明示）
+	static void v3_addQuad(Verts& v, V3 a, V3 b, V3 c, V3 d, V3 n, V3 col) {
+		v.push_back({ a, n, col, g_curE });
+		v.push_back({ b, n, col, g_curE });
+		v.push_back({ c, n, col, g_curE });
+		v.push_back({ a, n, col, g_curE });
+		v.push_back({ c, n, col, g_curE });
+		v.push_back({ d, n, col, g_curE });
+	}
+
+	// 任意の向きの直方体（中心 c、軸 r/u/f、半サイズ h）
+	static void v3_addBox(Verts& v, V3 c, V3 r, V3 u, V3 f, V3 h, V3 col) {
+		const V3 ax[3] = { r, u, f };
+		const float hs[3] = { h.x, h.y, h.z };
+		for (int k = 0; k < 3; k++) {
+			for (int sg = -1; sg <= 1; sg += 2) {
+				const int a = (k + 1) % 3, b = (k + 2) % 3;
+				const V3 n = ax[k] * static_cast<float>(sg);
+				const V3 ctr = c + n * hs[k];
+				const V3 A = ax[a] * hs[a], B = ax[b] * hs[b];
+				const V3 q[4] = { ctr - A - B, ctr + A - B, ctr + A + B, ctr - A + B };
+				v3_addQuad(v, q[0], q[1], q[2], q[3], n, col);
+			}
+		}
+	}
+
+	// 座標の範囲で指定する直方体（軸に平行）
+	static void v3_boxXYZ(Verts& v, float x0, float x1, float y0, float y1, float z0, float z1, V3 col) {
+		if (x0 > x1) std::swap(x0, x1);
+		if (y0 > y1) std::swap(y0, y1);
+		if (z0 > z1) std::swap(z0, z1);
+		v3_addBox(v, { (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, (z0 + z1) * 0.5f },
+			{ 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 },
+			{ (x1 - x0) * 0.5f, (y1 - y0) * 0.5f, (z1 - z0) * 0.5f }, col);
+	}
+
+	// 二点を結ぶ角棒（断面は一辺 2*hw の正方形）。y-z 面内の棒に使う
+	static void v3_addBar(Verts& v, V3 a, V3 b, float hw, V3 col) {
+		const V3 d = b - a;
+		const float L = std::sqrt(dot(d, d));
+		if (L < 1e-5f) return;
+		const V3 f = d * (1.0f / L);
+		// 棒の向きに垂直な r を選ぶ（x 方向の棒でも退化しないように）
+		V3 r = (std::fabs(f.x) > 0.9f) ? V3{ 0.0f, 1.0f, 0.0f } : V3{ 1.0f, 0.0f, 0.0f };
+		const V3 u = norm(cross(f, r));
+		r = norm(cross(u, f));
+		v3_addBox(v, (a + b) * 0.5f, r, u, f, { hw, hw, L * 0.5f }, col);
+	}
+
+	// 三角形を一つ追加（法線を明示）
+	static void v3_addTriN(Verts& v, V3 a, V3 b, V3 c, V3 n, V3 col) {
+		v.push_back({ a, n, col, g_curE });
+		v.push_back({ b, n, col, g_curE });
+		v.push_back({ c, n, col, g_curE });
+	}
+
+	// x 方向の軸を持つ円柱（側面と両端の円板を含む、16 角形）
+	static void v3_addCylX(Verts& v, float x0, float x1, float y, float z, float rad, V3 col) {
+		const int N = 16;
+		for (int i = 0; i < N; i++) {
+			const float a0 = 2.0f * PI * i / N, a1 = 2.0f * PI * (i + 1) / N;
+			const V3 d0 = { 0.0f, std::cos(a0), std::sin(a0) };
+			const V3 d1 = { 0.0f, std::cos(a1), std::sin(a1) };
+			const V3 n = norm(d0 + d1);
+			const V3 p00 = { x0, y + rad * d0.y, z + rad * d0.z };
+			const V3 p01 = { x1, y + rad * d0.y, z + rad * d0.z };
+			const V3 p10 = { x0, y + rad * d1.y, z + rad * d1.z };
+			const V3 p11 = { x1, y + rad * d1.y, z + rad * d1.z };
+			v3_addQuad(v, p00, p10, p11, p01, n, col);
+		}
+		for (int e = 0; e < 2; e++) {       // 両端の円板（ふた）
+			const float x = (e == 0) ? x0 : x1;
+			const V3 n = { (e == 0) ? -1.0f : 1.0f, 0.0f, 0.0f };
+			const V3 c = { x, y, z };
+			for (int i = 0; i < N; i++) {
+				const float a0 = 2.0f * PI * i / N, a1 = 2.0f * PI * (i + 1) / N;
+				const V3 p0 = { x, y + rad * std::cos(a0), z + rad * std::sin(a0) };
+				const V3 p1 = { x, y + rad * std::cos(a1), z + rad * std::sin(a1) };
+				v3_addTriN(v, c, p0, p1, n, col);
+			}
+		}
+	}
+
+	// 屋根の丸い断面を車体の全長に押し出す。両端は扇形のふた。
+	static void v3_addRoofShell(Verts& v) {
+		const int M = 10;
+		std::vector<V3> P;
+		for (int i = 0; i <= M; i++) {      // 右側の円弧：側面 → 屋根
+			const float t = (PI * 0.5f) * i / M;
+			P.push_back({ X_ROOF + R_ROOF * std::cos(t), Y_WIN1 + R_ROOF * std::sin(t), 0.0f });
+		}
+		for (int i = 0; i <= M; i++) {      // 左側の円弧：屋根 → 側面
+			const float t = PI * 0.5f + (PI * 0.5f) * i / M;
+			P.push_back({ -X_ROOF + R_ROOF * std::cos(t), Y_WIN1 + R_ROOF * std::sin(t), 0.0f });
+		}
+		const V3 inside = { 0.0f, Y_WIN1 + 0.15f, 0.0f };
+		const int n = static_cast<int>(P.size());
+		for (int i = 0; i < n; i++) {       // 底辺（y = Y_WIN1）を含めて一周
+			const V3 a = P[i], b = P[(i + 1) % n];
+			const V3 a0 = { a.x, a.y, -CAR_HL }, b0 = { b.x, b.y, -CAR_HL };
+			const V3 a1 = { a.x, a.y,  CAR_HL }, b1 = { b.x, b.y,  CAR_HL };
+			v3_addTri(v, a0, b0, b1, C_SILVER, inside);
+			v3_addTri(v, a0, b1, a1, C_SILVER, inside);
+		}
+		const float ends[2] = { -CAR_HL, CAR_HL };
+		for (float ez : ends) {
+			for (int i = 1; i + 1 < n; i++) {
+				v3_addTri(v, { P[0].x, P[0].y, ez }, { P[i].x, P[i].y, ez }, { P[i + 1].x, P[i + 1].y, ez }, C_SILVER, inside);
+			}
+		}
+	}
+
+	// 側面の板（y で色帯を分ける：下が青、中央がオレンジの細帯、上が銀）
+	static void v3_sideWall(Verts& v, float sg, float z0, float z1, float y0, float y1) {
+		const float xa = sg * XI, xb = sg * XO;
+		for (const LSeg& s : liverySegs(*V_LIV, y0, y1))
+			v3_boxXYZ(v, std::min(xa, xb), std::max(xa, xb), s.a, s.b, z0, z1, s.c);
+	}
+
+	// 側面の窓のガラス（x = sg * 1.37 の面）
+	static void v3_sideGlass(Verts& v, float sg, float z0, float z1, float y0, float y1, V3 col) {
+		const float x = sg * 1.37f;
+		const V3 n = { sg, 0.0f, 0.0f };
+		v3_addQuad(v, { x, y0, z0 }, { x, y0, z1 }, { x, y1, z1 }, { x, y1, z0 }, n, col);
+	}
+
+	// 開口（元の TrainSim と同じ考え方）: kind 0 = ドア, 1 = 窓, 2 = 運転室の横のドア
+	struct Opening { float z0, z1; int kind; };
+
+	// 区間 [a,b] に窓を等間隔に割る（柱の幅は 0.25m）。元コードの addWindowsIn と同じ割り方
+	static void v3_addWindowsIn(std::vector<Opening>& ops, float a, float b, float ma, float mb) {
+		const float pillar = 0.25f;
+		const float inner = (b - a) - ma - mb;
+		const int n = std::max(1, static_cast<int>(std::floor((inner + pillar) / (1.3f + pillar) + 0.5f)));
+		const float w = (inner - (n - 1) * pillar) / n;
+		for (int i = 0; i < n; i++) {
+			const float z0 = a + ma + i * (w + pillar);
+			ops.push_back({ z0, z0 + w, 1 });
+		}
+	}
+
+	// 側面の開口一覧（ドア・窓の位置）。ドアの位置は元コードの DOOR_Z と DOOR_HW のまま
+	static std::vector<Opening> makeOpenings(bool head, bool tail) {
+		std::vector<Opening> ops;
+		for (int k = 0; k < 3; k++) ops.push_back({ DOOR_Z[k] - DOOR_HW, DOOR_Z[k] + DOOR_HW, 0 });
+		v3_addWindowsIn(ops, -5.35f, -0.65f, 0.75f, 0.75f);
+		v3_addWindowsIn(ops, 0.65f, 5.35f, 0.75f, 0.75f);
+		if (head) { ops.push_back({ 7.40f, 8.00f, 1 }); ops.push_back({ 8.15f, 8.85f, 2 }); }
+		else v3_addWindowsIn(ops, 6.65f, CAR_HL, 0.75f, 0.35f);
+		if (tail) { ops.push_back({ -8.00f, -7.40f, 1 }); ops.push_back({ -8.85f, -8.15f, 2 }); }
+		else v3_addWindowsIn(ops, -CAR_HL, -6.65f, 0.35f, 0.75f);
+		std::sort(ops.begin(), ops.end(), [](const Opening& a, const Opening& b) { return a.z0 < b.z0; });
+		return ops;
+	}
+
+	// 車両の一方の側面（sg = +1 か -1）。開口の間は全高の壁、開口の位置に窓・ドアを入れる
+	static void v3_buildSide(Verts& body, Verts& glass, float sg, const std::vector<Opening>& ops, bool doorGlass) {
+		// 窓はドアの窓と同じ高さ（2.05〜2.90）。ガラスは開口の横幅いっぱいに入れ、細い枠で囲む
+		const float WY0 = 2.05f, WY1 = 2.90f;
+		const float FR = 0.035f;                        // 枠の太さ
+		float cur = -CAR_HL;
+		for (const Opening& o : ops) {
+			v3_sideWall(body, sg, cur, o.z0, Y_BOT, Y_WIN1);                      // 開口の前の壁
+			if (o.kind == 1) {
+				v3_sideWall(body, sg, o.z0, o.z1, Y_BOT, WY0);                    // 窓の下の壁
+				v3_sideWall(body, sg, o.z0, o.z1, WY1, Y_WIN1);                   // 窓の上の壁
+				v3_sideGlass(glass, sg, o.z0, o.z1, WY0, WY1, C_PANE);            // ガラス（開口いっぱい）
+				// 枠（ガラスの外周）
+				v3_boxXYZ(body, std::min(sg * 1.36f, sg * 1.39f), std::max(sg * 1.36f, sg * 1.39f), WY0 - FR, WY0, o.z0, o.z1, C_SILVER);
+				v3_boxXYZ(body, std::min(sg * 1.36f, sg * 1.39f), std::max(sg * 1.36f, sg * 1.39f), WY1, WY1 + FR, o.z0, o.z1, C_SILVER);
+				v3_boxXYZ(body, std::min(sg * 1.36f, sg * 1.39f), std::max(sg * 1.36f, sg * 1.39f), WY0, WY1, o.z0 - FR, o.z0, C_SILVER);
+				v3_boxXYZ(body, std::min(sg * 1.36f, sg * 1.39f), std::max(sg * 1.36f, sg * 1.39f), WY0, WY1, o.z1, o.z1 + FR, C_SILVER);
+			}
+			else {
+				v3_sideWall(body, sg, o.z0, o.z1, Y_BOT, Y_FLOOR);                // ドアの下の壁
+				if (doorGlass) v3_sideGlass(glass, sg, o.z0 + 0.04f, o.z1 - 0.04f, Y_FLOOR, Y_WIN1, C_PANE);
+			}
+			cur = o.z1;
+		}
+		v3_sideWall(body, sg, cur, CAR_HL, Y_BOT, Y_WIN1);
+	}
+
+	// 室内の内壁（窓の下・上と柱の部分。ドアの開口の部分は入れない）
+	static void v3_buildLiner(Verts& v, const std::vector<Opening>& ops) {
+		const float LX0 = 1.25f, LX1 = 1.29f;
+		const float WY0 = 2.05f, WY1 = 2.90f;
+		const float e0 = g_curE;
+		g_curE = 2.0f;                                  // 室内の内壁：光の向きで明るさが変わらない
+		for (int sgi = -1; sgi <= 1; sgi += 2) {
+			const float sg = static_cast<float>(sgi);
+			float cur = -CAR_HL;
+			auto piece = [&](float za, float zb) {
+				if (zb - za < 1e-4f) return;
+				v3_boxXYZ(v, std::min(sg * LX0, sg * LX1), std::max(sg * LX0, sg * LX1), Y_FLOOR, Y_WIN1, za, zb, C_LINER);
+				};
+			auto under = [&](float za, float zb) {
+				if (zb - za < 1e-4f) return;
+				v3_boxXYZ(v, std::min(sg * LX0, sg * LX1), std::max(sg * LX0, sg * LX1), Y_FLOOR, WY0, za, zb, C_LINER);
+				v3_boxXYZ(v, std::min(sg * LX0, sg * LX1), std::max(sg * LX0, sg * LX1), WY1, Y_WIN1, za, zb, C_LINER);
+				};
+			for (const Opening& o : ops) {
+				piece(cur, o.z0);
+				if (o.kind == 1) under(o.z0, o.z1);
+				cur = o.z1;
+			}
+			piece(cur, CAR_HL);
+		}
+		g_curE = e0;
+	}
+
+	// 連結部の内側の壁（開口の周り）
+	static void v3_buildEndLiner(Verts& v, float s) {
+		const float z0 = std::min(s * (CAR_HL - 0.06f), s * (CAR_HL - 0.02f));
+		const float z1 = std::max(s * (CAR_HL - 0.06f), s * (CAR_HL - 0.02f));
+		const float e0 = g_curE;
+		g_curE = 2.0f;                                  // 室内の内壁
+		v3_boxXYZ(v, -1.30f, -0.65f, Y_FLOOR, Y_WIN1, z0, z1, C_LINER);
+		v3_boxXYZ(v, 0.65f, 1.30f, Y_FLOOR, Y_WIN1, z0, z1, C_LINER);
+		v3_boxXYZ(v, -0.65f, 0.65f, 3.05f, Y_WIN1, z0, z1, C_LINER);
+		g_curE = e0;
+	}
+
+	// 室内（床・天井・座席・つり革の支柱）
+	static void v3_buildInterior(Verts& v, bool cabHead, bool cabTail) {
+		const float e0 = g_curE;
+		g_curE = 2.0f;                                  // 室内：光の向きに左右されず、暗くても視認できる
+		v3_boxXYZ(v, -1.30f, 1.30f, Y_BOT, Y_FLOOR, -9.9f, 9.9f, C_FLOOR);
+		v3_boxXYZ(v, -1.30f, 1.30f, Y_WIN1 - 0.06f, Y_WIN1, -9.9f, 9.9f, C_CEIL);
+		// 座席：「座る」判定（ゲーム側の範囲）と同じ区間に置く
+		const float segs[4][2] = { { -9.9f, -DOOR_Z[2] - DOOR_HW },{ -5.35f, -0.65f },{ 0.65f, 5.35f },{ DOOR_Z[2] + DOOR_HW, 9.9f } };
+		for (int k = 0; k < 4; k++) {
+			float a2 = segs[k][0] + 0.15f, b2 = segs[k][1] - 0.15f;
+			if (cabHead && k == 3) b2 = 7.9f;
+			if (cabTail && k == 0) a2 = -7.9f;
+			for (int sgi = -1; sgi <= 1; sgi += 2) {
+				const float sg = static_cast<float>(sgi);
+				v3_boxXYZ(v, std::min(sg * 0.80f, sg * 1.19f), std::max(sg * 0.80f, sg * 1.19f), Y_FLOOR, 1.42f, a2, b2, C_SEAT);
+				v3_boxXYZ(v, std::min(sg * 1.19f, sg * 1.25f), std::max(sg * 1.19f, sg * 1.25f), 1.42f, 2.00f, a2, b2, C_SEAT2);
+				// 支柱：ロングシートの両端の前縁から、座席の上に立ち上げる
+				const float px0 = std::min(sg * 0.80f, sg * 0.84f), px1 = std::max(sg * 0.80f, sg * 0.84f);
+				v3_boxXYZ(v, px0, px1, 1.42f, 3.05f, a2, a2 + 0.05f, C_POLE);
+				v3_boxXYZ(v, px0, px1, 1.42f, 3.05f, b2 - 0.05f, b2, C_POLE);
+			}
+		}
+		g_curE = e0;
+	}
+
+	// ---- 運転室の前面（元の TrainSim の前面形状を移植）----
+	// 前面の窓・柱・前照灯・行先表示・番号・ハートのマーク・計器・下部の黒い部分
+	static const float DIAL1[3] = { -0.95f, 2.065f, 9.606f };
+	static const float DIAL2[3] = { -0.70f, 2.065f, 9.606f };
+	static void v3_addHeart(Verts& v, V3 c, V3 r, V3 u, V3 n, float sc) {
+		// ハートのマーク：外側の白い縁と、内側の虹色の扇形
+		const int N = 36;
+		const V3 pal[6] = { { 0.98f, 0.55f, 0.15f },{ 0.98f, 0.85f, 0.20f },{ 0.35f, 0.80f, 0.35f },{ 0.25f, 0.65f, 0.95f },{ 0.55f, 0.35f, 0.85f },{ 0.95f, 0.40f, 0.65f } };
+		auto H = [](float t, float& x, float& y) {
+			const float s = sinf(t);
+			x = 16.0f * s * s * s;
+			y = 13.0f * cosf(t) - 5.0f * cosf(2.0f * t) - 2.0f * cosf(3.0f * t) - cosf(4.0f * t);
+			};
+		for (int pass = 0; pass < 2; pass++) {
+			const float k = (pass == 0) ? 1.14f : 1.0f, off = (pass == 0) ? 0.004f : 0.010f;
+			const V3 base = c + n * off;
+			auto P = [&](float x, float y) { return base + r * (x / 32.0f * sc * k) + u * ((y + 2.5f) / 32.0f * sc * k); };
+			const V3 ctr = P(0.0f, 0.0f);
+			for (int i = 0; i < N; i++) {
+				float x0, y0, x1, y1;
+				H(6.2831853f * i / N, x0, y0);
+				H(6.2831853f * (i + 1) / N, x1, y1);
+				const V3 col = (pass == 0) ? V3{ 0.96f, 0.96f, 0.98f } : pal[(i * 6) / N];
+				v.push_back({ ctr, n, col, g_curE });
+				v.push_back({ P(x0, y0), n, col, g_curE });
+				v.push_back({ P(x1, y1), n, col, g_curE });
+			}
+		}
+	}
+
+	static void v3_addStroke(Verts& v, V3 c, V3 r, V3 u, V3 n, float dh, float x0, float y0, float x1, float y1, V3 col) {
+		const int S = 4; const float hw = dh * 0.07f;
+		for (int i = 0; i <= S; i++) {
+			const float t = (float)i / S, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+			v3_addBox(v, c + r * (x * dh) + u * (y * dh), r, u, n, { hw, hw, 0.003f }, col);
+		}
+	}
+	// 車番: 数字・A・- は 7 セグメント、K は ク、H は ハ を線で描く。dh は文字の高さ
+	static void v3_addPlate(Verts& v, V3 c, V3 r, V3 u, V3 n, float dh, const char* s, V3 col) {
+		static const unsigned char SEGM[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };
+		const int len = (int)strlen(s);
+		const float pitch = dh * 0.80f, dw = dh * 0.55f, th = dh * 0.13f, hw = dw * 0.5f, hh = dh * 0.5f;
+		for (int i = 0; i < len; i++) {
+			const char ch = s[i];
+			const V3 ci = c + r * ((i - (len - 1) * 0.5f) * pitch);
+			if (ch == 'K') {   // ク
+				v3_addStroke(v, ci, r, u, n, dh, -0.30f, 0.30f, 0.05f, 0.30f, col);
+				v3_addStroke(v, ci, r, u, n, dh, 0.22f, 0.30f, -0.22f, -0.35f, col);
+				v3_addStroke(v, ci, r, u, n, dh, -0.22f, -0.35f, -0.32f, -0.12f, col);
+				continue;
+			}
+			if (ch == 'H') {   // ハ
+				v3_addStroke(v, ci, r, u, n, dh, -0.10f, 0.40f, -0.42f, -0.40f, col);
+				v3_addStroke(v, ci, r, u, n, dh, 0.32f, 0.40f, -0.02f, -0.30f, col);
+				continue;
+			}
+			const int m = (ch == '-') ? 0x40 : (ch == 'A') ? 0x77 : (ch >= '0' && ch <= '9') ? SEGM[ch - '0'] : 0;
+			auto seg = [&](float px, float py, float hx, float hy) { v3_addBox(v, ci + r * px + u * py, r, u, n, { hx, hy, 0.003f }, col); };
+			if (m & 1)  seg(0.0f, hh - th * 0.5f, hw, th * 0.5f);
+			if (m & 2)  seg(hw - th * 0.5f, hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 4)  seg(hw - th * 0.5f, -hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 8)  seg(0.0f, -hh + th * 0.5f, hw, th * 0.5f);
+			if (m & 16) seg(-hw + th * 0.5f, -hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 32) seg(-hw + th * 0.5f, hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 64) seg(0.0f, 0.0f, hw, th * 0.5f);
+		}
+	}
+	// 側面の方向幕の下地（車体の外側に薄く出す黒い板。ドアの上の壁の高さ）
+	static void v3_sideDisplayPlate(Verts& v, float sg) {
+		const float xa = sg * XO, xb = sg * (XO + 0.006f);
+		v3_boxXYZ(v, std::min(xa, xb), std::max(xa, xb), 3.12f, 3.26f, -0.62f, 0.62f, { 0.03f, 0.04f, 0.06f });
+	}
+	// 側面の車番（各車両の運転室寄りでない側、腰の高さ）
+	static void v3_sidePlate(Verts& v, float sg) {
+		const char* num = V_LIV->num;
+		const float dh = std::min(0.16f, 1.1f / ((float)strlen(num) * 0.8f));
+		v3_addPlate(v, { sg * (XO + 0.004f), 1.55f, -8.6f }, { 0, 0, sg }, { 0, 1, 0 }, { sg, 0, 0 }, dh, num, V_LIV->numCol);
+	}
+
+	static void v3_addNumber(Verts& v, V3 c, V3 r, V3 u, V3 n, float dh, const char* s, V3 col) {
+		static const unsigned char SEGM[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };
+		const float dw = dh * 0.55f, th = dh * 0.13f, pitch = dh * 0.88f, hw = dw * 0.5f, hh = dh * 0.5f;
+		const int len = (int)strlen(s);
+		for (int i = 0; i < len; i++) {
+			int d = s[i] - '0'; if (d < 0 || d > 9) continue;
+			V3 ci = c + r * ((i - (len - 1) * 0.5f) * pitch);
+			int m = SEGM[d];
+			auto seg = [&](float px, float py, float hx, float hy) { v3_addBox(v, ci + r * px + u * py, r, u, n, { hx, hy, 0.003f }, col); };
+			if (m & 1)  seg(0.0f, hh - th * 0.5f, hw, th * 0.5f);
+			if (m & 2)  seg(hw - th * 0.5f, hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 4)  seg(hw - th * 0.5f, -hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 8)  seg(0.0f, -hh + th * 0.5f, hw, th * 0.5f);
+			if (m & 16) seg(-hw + th * 0.5f, -hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 32) seg(-hw + th * 0.5f, hh * 0.5f, th * 0.5f, hh * 0.5f);
+			if (m & 64) seg(0.0f, 0.0f, hw, th * 0.5f);
+		}
+	}
+
+	struct GR { float x0, y0, x1, y1; };
+
+	static const GR GLY_FU[] = {
+		{ 1,10.2f,11,11.2f },{ 3.4f,8.4f,4.4f,12 },{ 7.6f,8.4f,8.6f,12 },{ 1,7.2f,11,8.2f },{ 2.4f,5.0f,3.4f,7.4f },{ 8.6f,5.0f,9.6f,7.4f },
+		{ 2.4f,5.0f,9.6f,6.0f },{ 3.2f,3.2f,8.8f,4.2f },{ 3.2f,0.2f,8.8f,1.2f },{ 3.2f,1.7f,8.8f,2.7f },{ 3.2f,0.2f,4.2f,4.2f },{ 7.8f,0.2f,8.8f,4.2f } };
+
+	static const GR GLY_TSU[] = {
+		{ 0.4f,9.6f,1.7f,10.9f },{ 1.0f,2.6f,2.2f,9.2f },{ 1.0f,0.8f,11.6f,2.0f },{ 4.6f,10.6f,11.0f,11.6f },{ 5.0f,3.6f,6.0f,10.6f },{ 9.6f,3.6f,10.6f,10.6f },
+		{ 5.0f,7.6f,10.6f,8.6f },{ 5.0f,3.6f,10.6f,4.6f },{ 7.4f,3.6f,8.4f,10.6f } };
+
+	static void v3_addPrismX(Verts& v, float zs, const float (*pf)[2], int n, float x0, float x1, V3 col) {
+		float cy = 0.0f, cz = 0.0f;
+		for (int i = 0; i < n; i++) { cz += pf[i][0]; cy += pf[i][1]; }
+		cz /= n; cy /= n;
+		const V3 inside = { (x0 + x1) * 0.5f, cy, zs * (10.0f + cz) };
+		auto P = [&](int i, float x) { return V3{ x, pf[i][1], zs * (10.0f + pf[i][0]) }; };
+		for (int i = 0; i < n; i++) {
+			int j = (i + 1) % n;
+			v3_addTri(v, P(i, x0), P(i, x1), P(j, x1), col, inside);
+			v3_addTri(v, P(i, x0), P(j, x1), P(j, x0), col, inside);
+		}
+		for (int e = 0; e < 2; e++) {
+			float x = e ? x1 : x0;
+			for (int i = 1; i + 1 < n; i++) v3_addTri(v, P(0, x), P(i, x), P(i + 1, x), col, inside);
+		}
+	}
+
+	static const float APRON[5][2] = { { 0.00f, 0.93f },{ 0.24f, 0.74f },{ 0.24f, 0.44f },{ 0.06f, 0.38f },{ 0.00f, 0.38f } };
+
+	static void v3_addCabFace(Verts& v, float zs, V3 lamp) {
+		auto zb = [&](float x0, float x1, float y0, float y1, float t0, float t1, V3 c) {
+			float a = zs * (10.0f + t0), b = zs * (10.0f + t1);
+			float xa = zs * x0, xb = zs * x1;
+			v3_boxXYZ(v, std::min(xa, xb), std::max(xa, xb), y0, y1, std::min(a, b), std::max(a, b), c);
+			};
+
+		auto disc = [&](float xc, float yc, float R, float t0, float t1, V3 c) {
+			for (int k = 0; k < 4; k++) {
+				float a = k * PI / 4.0f, ca = cosf(a), sa = sinf(a);
+				v3_addBox(v, { zs * xc, yc, zs * (10.0f + (t0 + t1) * 0.5f) }, { ca, sa, 0 }, { -sa, ca, 0 }, { 0, 0, 1 }, { R, R * 0.4142f, (t1 - t0) * 0.5f }, c);
+			}
+			};
+
+		const V3 cSil = C_SILVER * 1.04f, cFr = { 0.07f, 0.08f, 0.10f }, cGray = C_SILVER * 0.72f, cMech = { 0.20f, 0.21f, 0.24f };
+		g_curE = 0.0f;
+
+
+		const float GT = 0.06f;
+		zb(-1.24f, 1.24f, 3.12f, 3.22f, 0.0f, GT, cFr);
+		zb(-1.24f, 1.24f, 1.98f, 2.08f, 0.0f, GT, cFr);
+		zb(-1.24f, -1.12f, 2.08f, 3.12f, 0.0f, GT, cFr);
+		zb(1.12f, 1.24f, 2.08f, 3.12f, 0.0f, GT, cFr);
+		zb(-0.38f, -0.28f, 2.08f, 3.12f, 0.0f, GT, cFr);
+		zb(0.48f, 0.58f, 2.08f, 3.12f, 0.0f, GT, cFr);
+
+		zb(-0.28f, 0.48f, 1.12f, 2.15f, 0.0f, 0.04f, cSil);
+		zb(-0.28f, 0.48f, 3.00f, 3.12f, 0.0f, 0.04f, cSil);
+		zb(-0.28f, -0.20f, 2.15f, 3.00f, 0.0f, 0.04f, cSil);
+		zb(0.40f, 0.48f, 2.15f, 3.00f, 0.0f, 0.04f, cSil);
+		zb(-0.30f, -0.28f, 1.10f, 3.12f, 0.0f, 0.05f, cFr);
+		zb(0.48f, 0.50f, 1.10f, 3.12f, 0.0f, 0.05f, cFr);
+		zb(-0.30f, 0.50f, 1.08f, 1.12f, 0.0f, 0.05f, cFr);
+		zb(-0.21f, 0.41f, 2.13f, 2.16f, 0.04f, 0.055f, cFr);
+		zb(-0.21f, 0.41f, 2.99f, 3.02f, 0.04f, 0.055f, cFr);
+		zb(-0.21f, -0.18f, 2.13f, 3.02f, 0.04f, 0.055f, cFr);
+		zb(0.38f, 0.41f, 2.13f, 3.02f, 0.04f, 0.055f, cFr);
+		zb(0.33f, 0.38f, 1.60f, 1.92f, 0.04f, 0.075f, cFr);
+		zb(-0.22f, 0.42f, 1.30f, 1.33f, 0.04f, 0.05f, cGray);
+		zb(-0.22f, 0.42f, 1.18f, 1.21f, 0.04f, 0.05f, cGray);
+
+
+		// 前面の図柄。9210 は元の曲線の角、それ以外は塗装ごとの図柄を貼る（窓・ライト・中央のドアは除外）
+		const int fLi = (int)(V_LIV - LIVERIES);
+		if (fLi == LIV_BASE) {
+			const V3 inside = { 0.0f, 2.5f, 0.0f };
+			for (int sg = -1; sg <= 1; sg += 2) {
+				auto fr = [&](float x, float y) { return V3{ zs * sg * x, y, zs * (10.0f + 0.004f) }; };
+				const V3 corner = fr(1.35f, 0.90f);
+				V3 prev = fr(0.50f, 0.90f);
+				for (int i = 1; i <= 10; i++) {
+					const float t = i / 10.0f, x = 0.50f + 0.85f * t, y = 0.90f + 1.10f * powf(t, 2.3f);
+					const V3 cur = fr(x, y);
+					v3_addTri(v, corner, prev, cur, C_BLUE, inside);
+					prev = cur;
+				}
+			}
+		}
+		for (const FRect& fr : frontDesign(fLi)) {
+			std::vector<float> xs = { fr.x0, fr.x1 }, ys = { fr.y0, fr.y1 };
+			for (float f : { -1.14f, 1.14f, -0.85f, 0.85f, -0.36f, 0.56f }) if (f > fr.x0 && f < fr.x1) xs.push_back(f);
+			for (float f : { 1.08f, 1.18f, 1.44f, 2.08f, 2.18f, 3.12f }) if (f > fr.y0 && f < fr.y1) ys.push_back(f);
+			std::sort(xs.begin(), xs.end()); std::sort(ys.begin(), ys.end());
+			for (size_t i = 0; i + 1 < xs.size(); i++) for (size_t j = 0; j + 1 < ys.size(); j++) {
+				const float cx = 0.5f * (xs[i] + xs[i + 1]), cy = 0.5f * (ys[j] + ys[j + 1]);
+				const bool inWind = std::fabs(cx) <= 1.14f && cy >= 2.08f && cy <= 3.12f;
+				const bool inLamp = std::fabs(cx) >= 0.85f && cy >= 1.18f && cy <= 1.44f;
+				const bool inDoor = cx >= -0.36f && cx <= 0.56f && cy >= 1.08f && cy <= 2.18f;
+				if (!inWind && !inLamp && !inDoor) zb(xs[i], xs[i + 1], ys[j], ys[j + 1], 0.10f, 0.11f, fr.c);
+			}
+		}
+
+		g_curE = 0.0f;
+		zb(-0.17f, 0.37f, 3.22f, 3.47f, 0.0f, 0.05f, cFr);
+		disc(-0.03f, 3.345f, 0.085f, 0.050f, 0.062f, C_SILVER * 1.10f);
+		disc(0.23f, 3.345f, 0.085f, 0.050f, 0.062f, C_SILVER * 1.10f);
+		g_curE = 1.0f;
+		disc(-0.03f, 3.345f, 0.062f, 0.062f, 0.072f, lamp);
+		disc(0.23f, 3.345f, 0.062f, 0.062f, 0.072f, lamp);
+
+		for (int sg = -1; sg <= 1; sg += 2) {
+			g_curE = 0.0f;
+			zb(sg * 0.88f, sg * 1.24f, 1.20f, 1.42f, 0.0f, 0.05f, cFr);
+			zb(sg * 0.90f, sg * 1.22f, 1.21f, 1.23f, 0.05f, 0.06f, C_SILVER);
+			g_curE = 1.0f;
+			zb(sg * 0.91f, sg * 1.04f, 1.25f, 1.38f, 0.05f, 0.07f, lamp);
+			zb(sg * 1.08f, sg * 1.21f, 1.25f, 1.38f, 0.05f, 0.07f, { 1.0f, 0.15f, 0.10f });
+		}
+
+		{
+			g_curE = 0.0f; zb(-1.10f, -0.42f, 2.92f, 3.10f, 0.02f, 0.03f, { 0.03f, 0.04f, 0.06f });
+			g_curE = 1.0f;
+			// 行先板は右（-zs 側）と左（+zs 側）に置く。文字は 2D 描画で重ねる
+			zb(0.62f, 1.08f, 2.92f, 3.10f, 0.02f, 0.03f, { 0.03f, 0.04f, 0.06f });
+			g_curE = 0.0f;
+		}
+
+		v3_addPlate(v, { zs * -0.78f, 1.80f, zs * 10.012f }, { -zs, 0, 0 }, { 0, 1, 0 }, { 0, 0, zs },
+			std::min(0.14f, 0.92f / ((float)strlen(V_LIV->num) * 0.8f)), V_LIV->num, V_LIV->numCol);
+
+
+		v3_addPrismX(v, zs, APRON, 5, -1.12f, 1.12f, C_SILVER * 0.70f);
+		zb(-1.24f, -1.12f, 0.40f, 0.95f, 0.0f, 0.20f, C_SILVER * 0.60f);
+		zb(1.12f, 1.24f, 0.40f, 0.95f, 0.0f, 0.20f, C_SILVER * 0.60f);
+		for (int k = 0; k < 3; k++) zb(-1.10f, 1.10f, 0.50f + k * 0.08f, 0.53f + k * 0.08f, 0.235f, 0.255f, cFr);
+		zb(-0.34f, 0.34f, 0.50f, 0.82f, 0.24f, 0.36f, cMech);
+		zb(-0.13f, 0.13f, 0.58f, 0.74f, 0.36f, 0.62f, { 0.30f, 0.31f, 0.34f });
+		zb(-0.19f, 0.19f, 0.54f, 0.78f, 0.62f, 0.76f, { 0.25f, 0.26f, 0.29f });
+		zb(-0.08f, 0.08f, 0.60f, 0.72f, 0.76f, 0.79f, { 0.55f, 0.56f, 0.58f });
+		for (int sg = -1; sg <= 1; sg += 2) {
+			zb(sg * 0.50f, sg * 0.56f, 0.56f, 0.82f, 0.24f, 0.42f, cMech);
+			zb(sg * 0.34f, sg * 0.56f, 0.78f, 0.82f, 0.30f, 0.34f, cMech);
+		}
+
+		zb(0.04f, 0.16f, Y_ROOF - 0.02f, 3.96f, -0.80f, -0.68f, cFr);      // 屋根から立ち上がる管（屋根の面に差し込む）
+		zb(0.02f, 0.18f, 3.95f, 4.02f, -0.82f, -0.66f, cFr);
+		zb(-0.50f, -0.20f, Y_ROOF - 0.02f, 3.80f, -1.40f, -0.90f, cGray);   // 屋根の上の箱（底を屋根の面に合わせる）
+		zb(0.42f, 0.62f, Y_ROOF - 0.02f, 3.78f, -1.20f, -0.80f, cGray);   // 屋根の上の箱（底を屋根の面に合わせる）
+	}
+
+	static void v3_addCabInterior(Verts& v, float zs) {
+		const float e0 = g_curE;
+		g_curE = 2.0f;                                  // 運転室の内側（仕切り壁・床・天井・計器）は室内扱い
+		auto cb = [&](float x0, float x1, float y0, float y1, float z0, float z1, V3 c) {
+			float xa = zs * x0, xb = zs * x1, za = zs * z0, zb = zs * z1;
+			v3_boxXYZ(v, std::min(xa, xb), std::max(xa, xb), y0, y1, std::min(za, zb), std::max(za, zb), c);
+			};
+		const V3 cGray = { 0.55f, 0.58f, 0.60f }, cDesk = { 0.70f, 0.72f, 0.72f };
+		const V3 cBlack = { 0.08f, 0.08f, 0.09f }, cPanel = { 0.13f, 0.14f, 0.16f }, cWhite = { 0.92f, 0.92f, 0.92f };
+
+
+		g_curE = 0.0f;                                  // 運転室の正面の内張り（車両の前面）は室外扱い
+		cb(-1.25f, 1.25f, Y_FLOOR, 2.08f, 9.87f, 9.90f, C_LINER);
+		cb(-1.25f, 1.25f, 3.12f, 3.25f, 9.87f, 9.90f, C_LINER);
+		cb(-1.25f, -1.14f, 2.08f, 3.12f, 9.87f, 9.90f, C_LINER);
+		cb(1.14f, 1.25f, 2.08f, 3.12f, 9.87f, 9.90f, C_LINER);
+		g_curE = 2.0f;                                  // 以下の運転室内部は室内
+
+		cb(-1.25f, 1.25f, Y_FLOOR, 1.90f, 8.00f, 8.05f, C_LINER);
+		cb(-1.25f, 1.25f, 3.10f, 3.25f, 8.00f, 8.05f, C_LINER);
+		cb(-1.25f, -1.20f, 1.90f, 3.10f, 8.00f, 8.05f, C_LINER);
+		cb(1.20f, 1.25f, 1.90f, 3.10f, 8.00f, 8.05f, C_LINER);
+		cb(-0.30f, 0.30f, 1.90f, 3.10f, 8.00f, 8.05f, { 0.80f, 0.80f, 0.76f });
+		cb(0.18f, 0.24f, 2.30f, 2.42f, 7.97f, 8.00f, { 0.70f, 0.70f, 0.72f });
+
+		cb(-1.20f, 1.20f, Y_FLOOR, 1.115f, 8.10f, 9.15f, { 0.22f, 0.22f, 0.25f });
+		cb(-0.90f, -0.30f, 1.115f, 1.50f, 8.10f, 8.55f, cBlack);
+		cb(-0.88f, -0.32f, 1.50f, 2.30f, 8.07f, 8.15f, cBlack);
+		cb(-0.86f, -0.34f, 2.10f, 2.30f, 8.06f, 8.07f, { 0.18f, 0.30f, 0.40f });
+
+		cb(-1.25f, 1.25f, Y_FLOOR, 1.90f, 9.15f, 9.87f, cGray);
+		{
+			const float a = 8.0f * PI / 180.0f, ca = cosf(a), sa = sinf(a);
+			v3_addBox(v, { 0, 1.90f, zs * 9.5f }, { zs, 0, 0 }, { 0, ca, -zs * sa }, { 0, sa, zs * ca }, { 1.24f, 0.04f, 0.42f }, cDesk);
+		}
+		cb(-1.25f, 1.25f, 1.88f, 1.92f, 9.10f, 9.15f, cBlack);
+
+		cb(-1.00f, -0.64f, 1.90f, 2.00f, 9.20f, 9.52f, cPanel);
+		cb(-0.835f, -0.805f, 2.00f, 2.004f, 9.25f, 9.47f, cBlack);
+		for (int i = 0; i < 15; i++) {
+			float z = 9.26f + i * 0.0143f;
+			cb(-0.86f, -0.85f, 2.00f, 2.004f, z, z + 0.004f, cWhite);
+		}
+
+		cb(-1.13f, -1.05f, 1.93f, 2.00f, 9.30f, 9.42f, cPanel);
+		cb(-1.10f, -1.08f, 2.00f, 2.07f, 9.34f, 9.36f, cBlack);
+		cb(-1.115f, -1.065f, 2.07f, 2.10f, 9.33f, 9.37f, { 0.80f, 0.20f, 0.20f });
+
+		cb(-0.58f, -0.22f, 1.90f, 1.965f, 9.22f, 9.52f, cPanel);
+		for (int c = 0; c < 2; c++) for (int r = 0; r < 2; r++) {
+			float x0 = -0.55f + c * 0.20f, z0 = 9.26f + r * 0.12f;
+			V3 col = (c == 0) ? V3{ 0.15f, 0.70f, 0.25f } : V3{ 0.90f, 0.80f, 0.20f };
+			cb(x0, x0 + 0.10f, 1.965f, 1.99f, z0, z0 + 0.10f, col);
+		}
+
+		cb(-0.17f, -0.03f, 1.90f, 1.935f, 9.27f, 9.41f, cBlack);
+		cb(-0.14f, -0.06f, 1.935f, 1.99f, 9.30f, 9.38f, { 0.85f, 0.10f, 0.10f });
+
+		cb(0.15f, 0.75f, 1.90f, 1.96f, 9.25f, 9.85f, cPanel);
+		for (int i = 0; i < 6; i++) for (int j = 0; j < 3; j++) {
+			float x = 0.22f + i * 0.095f, z = 9.38f + j * 0.18f;
+			cb(x - 0.018f, x + 0.018f, 1.96f, 2.00f, z - 0.018f, z + 0.018f, cBlack);
+			V3 lc = ((i + j) % 3 == 0) ? V3{ 0.85f, 0.25f, 0.20f } : ((i + j) % 3 == 1) ? V3{ 0.80f, 0.80f, 0.82f } : V3{ 0.25f, 0.55f, 0.85f };
+			cb(x - 0.008f, x + 0.008f, 2.00f, 2.045f, z - 0.008f, z + 0.008f, lc);
+		}
+		cb(0.82f, 1.20f, 1.90f, 1.97f, 9.20f, 9.85f, cPanel);
+		const V3 lampCols[4] = { { 0.9f, 0.2f, 0.2f },{ 0.95f, 0.8f, 0.2f },{ 0.2f, 0.85f, 0.3f },{ 0.9f, 0.9f, 0.92f } };
+		for (int k = 0; k < 4; k++) for (int j = 0; j < 3; j++) {
+			float x = 0.88f + k * 0.08f, z = 9.30f + j * 0.20f;
+			cb(x - 0.025f, x + 0.025f, 1.97f, 1.99f, z - 0.025f, z + 0.025f, lampCols[k]);
+		}
+
+		cb(-0.72f, -0.52f, Y_FLOOR, 1.16f, 9.10f, 9.30f, cBlack);
+		cb(-0.45f, -0.35f, Y_FLOOR, 1.15f, 9.15f, 9.28f, cGray);
+
+		cb(-1.15f, -0.22f, 1.897f, 2.16f, 9.62f, 9.88f, cPanel);
+		cb(-1.045f, -0.855f, 1.97f, 2.16f, 9.616f, 9.62f, { 0.03f, 0.03f, 0.04f });
+		cb(-0.775f, -0.625f, 2.00f, 2.13f, 9.616f, 9.62f, { 0.03f, 0.03f, 0.04f });
+		for (int i = 0; i <= 12; i++) {
+			float phi = (135.0f - 270.0f * i / 12.0f) * PI / 180.0f, r = 0.072f;
+			float px = DIAL1[0] - sinf(phi) * r, py = DIAL1[1] + cosf(phi) * r, h = (i % 2 == 0) ? 0.006f : 0.004f;
+			cb(px - h, px + h, py - h, py + h, 9.612f, 9.616f, cWhite);
+		}
+		for (int i = 0; i <= 8; i++) {
+			float phi = (135.0f - 270.0f * i / 8.0f) * PI / 180.0f, r = 0.058f;
+			float px = DIAL2[0] - sinf(phi) * r, py = DIAL2[1] + cosf(phi) * r;
+			cb(px - 0.004f, px + 0.004f, py - 0.004f, py + 0.004f, 9.612f, 9.616f, cWhite);
+		}
+		cb(-0.58f, -0.25f, 1.98f, 2.15f, 9.616f, 9.62f, { 0.02f, 0.02f, 0.03f });
+		cb(-0.565f, -0.265f, 1.995f, 2.135f, 9.612f, 9.616f, { 0.05f, 0.14f, 0.28f });
+		cb(-0.55f, -0.35f, 2.09f, 2.115f, 9.608f, 9.612f, { 0.30f, 0.75f, 0.95f });
+		cb(-0.55f, -0.28f, 2.05f, 2.07f, 9.608f, 9.612f, { 0.90f, 0.80f, 0.20f });
+		cb(-0.55f, -0.45f, 2.01f, 2.03f, 9.608f, 9.612f, { 0.30f, 0.90f, 0.40f });
+		cb(-1.14f, -1.11f, 2.02f, 2.05f, 9.608f, 9.62f, { 1.00f, 0.70f, 0.10f });
+
+		cb(-0.20f, 0.20f, 3.22f, 3.25f, 8.80f, 9.40f, { 1.0f, 1.0f, 0.95f });
+		g_curE = e0;
+	}
+
+	static void v3_addGlassQuadZ(Verts& v, float z, float x0, float x1, float y0, float y1, V3 col, float nz) {
+		V3 n = { 0, 0, nz };
+		V3 q[4] = { { x0, y0, z },{ x1, y0, z },{ x1, y1, z },{ x0, y1, z } };
+		int idx[6] = { 0, 1, 2, 0, 2, 3 };
+		for (int i : idx) v.push_back({ q[i], n, col, g_curE });
+	}
+
+	static Verts v3_buildWindscreen(float zs) {
+		Verts v;
+		float z = zs * 10.012f;
+		v3_addGlassQuadZ(v, z, -1.14f, 1.14f, 2.08f, 3.12f, C_WSC, zs);
+		return v;
+	}
+
+	static void v3_addCabGlass(Verts& v, float zs) {
+		float z = zs * 8.025f;
+		float xa = zs * -1.20f, xb = zs * -0.30f, xc = zs * 0.30f, xd = zs * 1.20f;
+		v3_addGlassQuadZ(v, z, std::min(xa, xb), std::max(xa, xb), 1.90f, 3.10f, C_PANE_CAB, zs);
+		v3_addGlassQuadZ(v, z, std::min(xc, xd), std::max(xc, xd), 1.90f, 3.10f, C_PANE_CAB, zs);
+	}
+
+	// 運転室のない端（連結面）：中央に貫通路の板
+	static void v3_buildPlainEnd(Verts& body, float s) {
+		// 連結部の開口：幅 1.30m（|x| < 0.65）、床から 3.05m まで。ここを通って車両間を移動できる
+		const float z0 = std::min(s * CAR_HL, s * (CAR_HL + 0.03f));
+		const float z1 = std::max(s * CAR_HL, s * (CAR_HL + 0.03f));
+		v3_boxXYZ(body, -XO, -0.65f, Y_BOT, Y_WIN1, z0, z1, C_SILVER);                 // 左の壁
+		v3_boxXYZ(body, 0.65f, XO, Y_BOT, Y_WIN1, z0, z1, C_SILVER);                 // 右の壁
+		v3_boxXYZ(body, -0.65f, 0.65f, Y_BOT, Y_FLOOR, z0, z1, C_SILVER);              // 開口の下
+		v3_boxXYZ(body, -0.65f, 0.65f, 3.05f, Y_WIN1, z0, z1, C_SILVER);               // 開口の上
+	}
+
+	// 連結面の蛇腹（車両の外側へ 0.55m 出る）
+	static void v3_buildHood(Verts& body, float s) {
+		// 蛇腹（車両の外へ 0.55m）。中は空洞で、床の渡り板の上を通れる
+		const float z0 = std::min(s * CAR_HL, s * (CAR_HL + 0.55f));
+		const float z1 = std::max(s * CAR_HL, s * (CAR_HL + 0.55f));
+		v3_boxXYZ(body, -0.90f, -0.65f, 0.95f, 3.20f, z0, z1, C_HOOD);
+		v3_boxXYZ(body, 0.65f, 0.90f, 0.95f, 3.20f, z0, z1, C_HOOD);
+		v3_boxXYZ(body, -0.65f, 0.65f, 3.05f, 3.20f, z0, z1, C_HOOD);
+		const float f0 = std::min(s * (CAR_HL - 0.1f), s * (CAR_HL + 0.6f));
+		const float f1 = std::max(s * (CAR_HL - 0.1f), s * (CAR_HL + 0.6f));
+		v3_boxXYZ(body, -1.05f, 1.05f, 0.92f, Y_FLOOR, f0, f1, C_FLOOR);              // 渡り板
+	}
+
+	// 台車と車輪
+	static void v3_buildBogie(Verts& v, float zc) {
+		v3_boxXYZ(v, -1.00f, 1.00f, 0.42f, 0.60f, zc - 1.45f, zc + 1.45f, C_BOGIE);
+		v3_boxXYZ(v, -0.90f, 0.90f, 0.44f, 0.58f, zc - 0.12f, zc + 0.12f, C_BOGIE);
+		for (int a = -1; a <= 1; a += 2) {
+			const float z = zc + 1.05f * a;
+			v3_boxXYZ(v, -0.84f, 0.84f, 0.31f, 0.39f, z - 0.05f, z + 0.05f, C_MOTOR);   // 車軸
+			for (int s = -1; s <= 1; s += 2) {
+				v3_addCylX(v, s * 0.66f, s * 0.78f, 0.35f, z, 0.40f, C_WHEEL);           // 車輪（踏面）
+				v3_addCylX(v, s * 0.78f, s * 0.84f, 0.35f, z, 0.20f, C_HUB);              // 車輪の外側の輪
+			}
+		}
+	}
+
+	// 車体の下の機器
+	static void v3_buildUnderframe(Verts& v) {
+		v3_boxXYZ(v, -1.00f, 1.00f, 0.75f, Y_BOT + 0.01f, -9.0f, 9.0f, C_UNDER);
+		v3_boxXYZ(v, -1.15f, 1.15f, 0.50f, Y_BOT, -5.2f, -2.6f, C_EQ);
+		v3_boxXYZ(v, -1.15f, 1.15f, 0.50f, Y_BOT, 0.2f, 3.4f, C_EQ);
+		v3_boxXYZ(v, -1.05f, 1.05f, 0.58f, Y_BOT, 3.9f, 5.0f, C_EQ);
+	}
+
+	// 屋根の上の機器（冷房装置）
+	static void v3_buildRoofEquip(Verts& v) {
+		const float acZ[2] = { -4.2f, 3.6f };
+		for (int i = 0; i < 2; i++) {
+			v3_boxXYZ(v, -0.68f, 0.68f, Y_ROOF, Y_ROOF + 0.20f, acZ[i] - 1.4f, acZ[i] + 1.4f, C_AC);
+		}
+	}
+
+	// 菱形（下枠交差式）パンタグラフ。中間車だけに付く。
+	// 参考モデル（正面に見える菱形：下枠が X に交差、上枠は平行、上に舟体）をデフォルメして作る。
+	// 参考モデルの (rx, ry) を車両の座標に写す：rx は長さ方向 z、ry は高さ y（ry = 0.20 が屋根面）。
+	// 菱形は x = ±FX の 2 組。舟体は両組の上を車幅方向（x）へ渡す。
+	static void v3_buildPantograph(Verts& v) {
+		const float zc = 7.65f;                  // 中心の z（従来どおり）
+		const float S = 1.8f;                    // 参考モデルの寸法からの倍率
+		const float FX = 0.30f;                  // 菱形の x 位置（±）
+		const float HW_ARM = 0.035f, HW_UP = 0.03f;
+		const float yBeam = Y_ROOF + 0.05f;      // 台座の横梁の高さ
+		auto P = [&](float rx, float ry, float x) -> V3 {
+			return { x, Y_ROOF + (ry - 0.20f) * S, zc + rx * S };
+			};
+		auto joint = [&](const V3& p, float s, V3 col) {
+			v3_boxXYZ(v, p.x - s, p.x + s, p.y - s, p.y + s, p.z - s, p.z + s, col);
+			};
+
+		// 台座：車幅方向の横梁を、長さ方向の両端（菱形の支点の位置）に渡す
+		for (int sz = -1; sz <= 1; sz += 2) {
+			const float zp = zc + sz * 0.30f * S;
+			v3_addBar(v, { -FX, yBeam, zp }, { FX, yBeam, zp }, 0.045f, C_BASE);
+		}
+
+		const float top = Y_ROOF + (0.87f - 0.20f) * S;   // 舟体の高さ
+		for (int sx = -1; sx <= 1; sx += 2) {
+			const float x = sx * FX;
+			// 参考モデルの支点（台座 → 菱形の左右の頂点 → 上の支点）
+			const V3 BL = P(-0.30f, 0.33f, x), BR = P(0.30f, 0.33f, x);   // 下枠の根元
+			const V3 VL = P(-0.44f, 0.61f, x), VR = P(0.44f, 0.61f, x);   // 菱形の左右の頂点
+			const V3 TL = P(-0.06f, 0.80f, x), TR = P(0.06f, 0.80f, x);   // 上枠の支点
+
+			// 下枠：BL→VR と BR→VL が中央で X に交差する
+			v3_addBar(v, BL, VR, HW_ARM, C_ARM);
+			v3_addBar(v, BR, VL, HW_ARM, C_ARM);
+			// 上枠：交差させず、菱形の上の辺をつくる
+			v3_addBar(v, VL, TL, HW_UP, C_ARM);
+			v3_addBar(v, VR, TR, HW_UP, C_ARM);
+			v3_addBar(v, TL, TR, HW_UP, C_ARM);
+			// 上枠から舟体を支える支柱
+			v3_addBar(v, P(0.0f, 0.80f, x), P(0.0f, 0.87f, x), HW_UP, C_ARM);
+
+			// 碍子（台座の横梁から下枠の根元へ）と関節
+			for (const V3* b : { &BL, &BR }) {
+				v3_boxXYZ(v, x - 0.04f, x + 0.04f, yBeam, b->y - 0.03f, b->z - 0.04f, b->z + 0.04f, C_INS);
+				joint(*b, 0.05f, C_BASE);
+			}
+			const V3 mids[4] = { VL, VR, TL, TR };
+			for (const V3& p : mids) joint(p, 0.04f, C_BASE);
+		}
+
+		// 舟体：両組の上を車幅方向へ渡し、両端は参考モデルどおり少し下へ反らせる
+		v3_addBar(v, { -0.62f, top, zc }, { 0.62f, top, zc }, 0.03f, C_ARM);
+		for (int sx = -1; sx <= 1; sx += 2) {
+			const V3 tip = { sx * 0.80f, top - 0.20f, zc };
+			v3_addBar(v, { sx * 0.62f, top, zc }, tip, 0.03f, C_ARM);
+			joint(tip, 0.045f, C_HORN);                       // 角の先端（黄色）
+		}
+		v3_boxXYZ(v, -0.58f, 0.58f, top + 0.03f, top + 0.06f, zc - 0.05f, zc + 0.05f, C_STRIP);   // すり板
+	}
+
+	// 運転室のある端を組み立てる（前面の形・室内・窓）
+	static void v3_cabEnd(Verts& body, Verts& glass, float s, bool windscreen) {
+		v3_addCabFace(body, s, { 1.0f, 1.0f, 0.85f });
+		v3_addCabInterior(body, s);
+		v3_addCabGlass(glass, s);
+		// 運転席の椅子（座る判定と同じ位置）
+		const float ecab = g_curE;
+		g_curE = 2.0f;
+		v3_boxXYZ(body, -0.90f, -0.30f, 1.115f, 1.50f, s * 8.10f, s * 8.55f, C_SEAT);
+		v3_boxXYZ(body, -0.88f, -0.32f, 1.50f, 2.30f, s * 8.06f, s * 8.15f, C_SEAT2);
+		g_curE = ecab;
+		if (windscreen) {
+			const Verts ws = v3_buildWindscreen(s);
+			glass.insert(glass.end(), ws.begin(), ws.end());
+		}
+	}
+
+	// 車両 1 両分の形を作る。
+	// 戻り値: 車体（body）と窓（glass）
+	// forGame = true のときは、扉のガラスと前面の窓をゲーム側の別メッシュに任せる
+	static void v3_buildCar(Verts& body, Verts& glass, bool head, bool tail, bool forGame) {
+		// 屋根（丸みつき）と両側面
+		v3_addRoofShell(body);
+		const std::vector<Opening> ops = makeOpenings(head, tail);
+		v3_buildSide(body, glass, +1.0f, ops, !forGame);
+		v3_buildSide(body, glass, -1.0f, ops, !forGame);
+		v3_sidePlate(body, +1.0f); v3_sidePlate(body, -1.0f);
+
+		// 前後の端
+		if (head) v3_cabEnd(body, glass, +1.0f, !forGame); else { v3_buildPlainEnd(body, +1.0f); v3_buildHood(body, +1.0f); }
+		if (tail) v3_cabEnd(body, glass, -1.0f, !forGame); else { v3_buildPlainEnd(body, -1.0f); v3_buildHood(body, -1.0f); }
+
+		// 室内
+		v3_buildLiner(body, ops);
+		if (!head) v3_buildEndLiner(body, +1.0f);
+		if (!tail) v3_buildEndLiner(body, -1.0f);
+		v3_buildInterior(body, head, tail);
+
+		// 下回り
+		v3_buildUnderframe(body);
+		v3_buildBogie(body, +BOGIE_Z);
+		v3_buildBogie(body, -BOGIE_Z);
+
+		// 屋根の上
+		v3_buildRoofEquip(body);
+		if (!head && !tail) v3_buildPantograph(body);
+	}
+
+
+	// ゲームから呼ぶ入口
+	static Verts v3_buildBody(bool head, bool tail) {
+		Verts body, glass;
+		g_curE = 0.0f;
+		v3_buildCar(body, glass, head, tail, true);
+		g_curE = 0.0f;
+		return body;
+	}
+	static Verts v3_buildGlass(bool head, bool tail) {
+		Verts body, glass;
+		g_curE = 0.0f;
+		v3_buildCar(body, glass, head, tail, true);
+		g_curE = 0.0f;
+		return glass;
+	}
+
+} // namespace v3car
+
+// 車両の形: 作り直し版（v3car）を使う。旧版は下の buildCarBodyLegacy に残してある
+// 塗装番号 li を適用してから車体を作る（形は同じ、色と帯だけ変わる）
+static void applyLivery(int li) {
+	const Livery& L = LIVERIES[li];
+	v3car::C_SILVER = L.base; v3car::C_BLUE = L.nose; v3car::C_ORANGE = L.accent;
+	v3car::V_LIV = &LIVERIES[li];
+}
+static Verts buildCarBody(bool head, bool tail, int li) { applyLivery(li); return v3car::v3_buildBody(head, tail); }
+static Verts buildCarGlassV3(bool head, bool tail) { return v3car::v3_buildGlass(head, tail); }
+
+static Verts buildCarBodyLegacy(bool head, bool tail) {
 	Verts v;
 
 	addBogie(v, BOGIE_HALF); addBogie(v, -BOGIE_HALF);
@@ -1921,14 +2951,13 @@ static Verts buildCarBody(bool head, bool tail) {
 				if (y1 > Y_BLUE1 && y0 < Y_WHITE1) addBoxR(v, x0, x1, std::max(y0, Y_BLUE1), std::min(y1, Y_WHITE1), za, zb, C_ORANGE);
 				if (y1 > Y_WHITE1) addBoxR(v, x0, x1, std::max(y0, Y_WHITE1), y1, za, zb, C_SILVER);
 				};
-			band(-1.35f, -GANG_HW, Y_SKIN0, Y_SKIN1);
-			band(GANG_HW, 1.35f, Y_SKIN0, Y_SKIN1);
+			band(-1.35f, -GANG_HW, Y_SKIN0, ROOF_Y0);
+			band(GANG_HW, 1.35f, Y_SKIN0, ROOF_Y0);
 			band(-GANG_HW, GANG_HW, Y_SKIN0, Y_FLOOR);
-			band(-GANG_HW, GANG_HW, GANG_TOP, Y_SKIN1);
+			band(-GANG_HW, GANG_HW, GANG_TOP, ROOF_Y0);
 			return;
 		}
 		addBoxR(v, -1.35f, 1.35f, Y_SKIN0, 2.08f, za, zb, C_SILVER);
-		addBoxR(v, -1.35f, 1.35f, 3.12f, Y_SKIN1, za, zb, C_SILVER);
 		addBoxR(v, -1.35f, -1.14f, 2.08f, 3.12f, za, zb, C_SILVER);
 		addBoxR(v, 1.14f, 1.35f, 2.08f, 3.12f, za, zb, C_SILVER);
 		};
@@ -1967,7 +2996,7 @@ static Verts buildCarBody(bool head, bool tail) {
 		}
 		if (zb - cur > 1e-4f) addSideBox(v, sg, 1.25f, 1.29f, y0, y1, cur, zb, C_LINER);
 		};
-	float segs[4][2] = { { -9.9f, -DOOR_Z[2] - DOOR_HW }, { -5.35f, -0.65f }, { 0.65f, 5.35f }, { DOOR_Z[2] + DOOR_HW, 9.9f } };
+	float segs[4][2] = { { -9.9f, -DOOR_Z[2] - DOOR_HW },{ -5.35f, -0.65f },{ 0.65f, 5.35f },{ DOOR_Z[2] + DOOR_HW, 9.9f } };
 	for (int sgi = -1; sgi <= 1; sgi += 2) {
 		float sg = (float)sgi;
 		for (int i = 0; i < 4; i++) {
@@ -2004,8 +3033,8 @@ static Verts buildCarBody(bool head, bool tail) {
 	if (!tail) linerEnd(-9.9f, -9.86f);
 	g_curE = 0.0f;
 
-	addBoxR(v, -1.40f, 1.40f, Y_SKIN1, 3.50f, -10.0f, 10.0f, C_SILVER);
-	addBoxR(v, -1.05f, 1.05f, 3.50f, 3.64f, -10.0f, 10.0f, { 0.82f, 0.84f, 0.86f });
+	addRoofShell(v);
+	addBoxR(v, -0.95f, 0.95f, 3.50f, 3.64f, -10.0f, 10.0f, { 0.82f, 0.84f, 0.86f });
 	addBoxR(v, -0.70f, 0.70f, 3.64f, 3.70f, -10.0f, 10.0f, { 0.70f, 0.72f, 0.74f });
 	const float acZ[2] = { -4.2f, 3.6f };
 	for (int i = 0; i < 2; i++) {
@@ -2021,13 +3050,13 @@ static const V3 C_PANE = { 0.62f, 0.84f, 0.96f };
 static const V3 C_WSC = { 0.12f, 0.19f, 0.25f };
 static void addGlassQuadX(Verts& v, float x, float y0, float y1, float z0, float z1, V3 col, float nx) {
 	V3 n = { nx, 0, 0 };
-	V3 q[4] = { { x, y0, z0 }, { x, y1, z0 }, { x, y1, z1 }, { x, y0, z1 } };
+	V3 q[4] = { { x, y0, z0 },{ x, y1, z0 },{ x, y1, z1 },{ x, y0, z1 } };
 	int idx[6] = { 0, 1, 2, 0, 2, 3 };
 	for (int i : idx) v.push_back({ q[i], n, col });
 }
 static void addGlassQuadZ(Verts& v, float z, float x0, float x1, float y0, float y1, V3 col, float nz) {
 	V3 n = { 0, 0, nz };
-	V3 q[4] = { { x0, y0, z }, { x1, y0, z }, { x1, y1, z }, { x0, y1, z } };
+	V3 q[4] = { { x0, y0, z },{ x1, y0, z },{ x1, y1, z },{ x0, y1, z } };
 	int idx[6] = { 0, 1, 2, 0, 2, 3 };
 	for (int i : idx) v.push_back({ q[i], n, col });
 }
@@ -2045,7 +3074,8 @@ static void addCabGlass(Verts& v, float zs) {
 	addGlassQuadZ(v, z, std::min(xa, xb), std::max(xa, xb), 1.90f, 3.10f, C_PANE, zs);
 	addGlassQuadZ(v, z, std::min(xc, xd), std::max(xc, xd), 1.90f, 3.10f, C_PANE, zs);
 }
-static Verts buildCarGlass(bool head, bool tail) {
+static Verts buildCarGlass(bool head, bool tail) { return buildCarGlassV3(head, tail); }
+static Verts buildCarGlassLegacy(bool head, bool tail) {
 	Verts v;
 	std::vector<Opening> ops = makeOpenings(head, tail);
 	for (int sgi = -1; sgi <= 1; sgi += 2) {
@@ -2064,13 +3094,13 @@ static Verts buildDoorGlass(float sg) {
 }
 
 
-static Verts buildDoorLeaf(float sg) {
+static Verts buildDoorLeaf(float sg, int li) {
 	Verts v;
 	const float h = LEAF_HW;
-	addLivery(v, sg, X_IN, X_OUT, Y_FLOOR, 2.05f, -h, h);
-	addLivery(v, sg, X_IN, X_OUT, 2.90f, Y_WIN1, -h, h);
-	addLivery(v, sg, X_IN, X_OUT, 2.05f, 2.90f, -h, -0.14f);
-	addLivery(v, sg, X_IN, X_OUT, 2.05f, 2.90f, 0.14f, h);
+	addLiveryL(v, sg, X_IN, X_OUT, Y_FLOOR, 2.05f, -h, h, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 2.90f, Y_WIN1, -h, h, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 2.05f, 2.90f, -h, -0.14f, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 2.05f, 2.90f, 0.14f, h, li);
 	const float e0 = g_curE; g_curE = 2.0f;
 	addSideBox(v, sg, 1.32f, X_IN, Y_FLOOR, 2.05f, -h, h, C_LINER);
 	addSideBox(v, sg, 1.32f, X_IN, 2.90f, Y_WIN1, -h, h, C_LINER);
@@ -2083,13 +3113,13 @@ static Verts buildDoorLeaf(float sg) {
 
 
 static const float CAB_DOOR_Z0 = 8.15f, CAB_DOOR_Z1 = 8.85f, CAB_HINGE_X = 1.375f;
-static Verts buildCabDoor(float sg, float zs) {
+static Verts buildCabDoor(float sg, float zs, int li) {
 	Verts v;
 	const float za = zs > 0 ? CAB_DOOR_Z0 : -CAB_DOOR_Z1, zb = zs > 0 ? CAB_DOOR_Z1 : -CAB_DOOR_Z0;
-	addLivery(v, sg, X_IN, X_OUT, Y_FLOOR, 2.15f, za, zb);
-	addLivery(v, sg, X_IN, X_OUT, 2.15f, 3.00f, za, za + 0.12f);
-	addLivery(v, sg, X_IN, X_OUT, 2.15f, 3.00f, zb - 0.12f, zb);
-	addLivery(v, sg, X_IN, X_OUT, 3.00f, 3.20f, za, zb);
+	addLiveryL(v, sg, X_IN, X_OUT, Y_FLOOR, 2.15f, za, zb, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 2.15f, 3.00f, za, za + 0.12f, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 2.15f, 3.00f, zb - 0.12f, zb, li);
+	addLiveryL(v, sg, X_IN, X_OUT, 3.00f, 3.20f, za, zb, li);
 	addSideBox(v, sg, X_OUT, X_OUT + 0.02f, Y_FLOOR, 1.13f, za, zb, C_DARK);
 	addSideBox(v, sg, X_OUT, X_OUT + 0.02f, 1.13f, 3.17f, za, za + 0.03f, C_DARK);
 	addSideBox(v, sg, X_OUT, X_OUT + 0.02f, 1.13f, 3.17f, zb - 0.03f, zb, C_DARK);
@@ -2328,17 +3358,17 @@ static void addHouse(Verts& v, V3 p, float yaw, float w, float d, float h, V3 wa
 
 struct HDoorDef { V3 hinge, closedDir, openDir; float w, h, maxAng; };
 static const HDoorDef H_DOORS[NHD] = {
-	{ { 3.70f, 0.00f, 3.90f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 0.96f, 2.05f, 1.75f },
-	{ { 3.05f, 2.75f, -3.55f }, { 0.0f, 0.0f, 1.0f }, { -1.0f, 0.0f, 0.0f }, 0.86f, 2.05f, 1.75f },
-	{ { -4.25f, 0.02f, -3.13f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 0.65f, 1.18f, 1.55f },
-	{ { -4.25f, 1.22f, -3.13f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 0.65f, 0.58f, 1.55f },
+	{ { 3.70f, 0.00f, 3.90f },{ -1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f, -1.0f }, 0.96f, 2.05f, 1.75f },
+	{ { 3.05f, 2.75f, -3.55f },{ 0.0f, 0.0f, 1.0f },{ -1.0f, 0.0f, 0.0f }, 0.86f, 2.05f, 1.75f },
+	{ { -4.25f, 0.02f, -3.13f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f, 1.0f }, 0.65f, 1.18f, 1.55f },
+	{ { -4.25f, 1.22f, -3.13f },{ 1.0f, 0.0f, 0.0f },{ 0.0f, 0.0f, 1.0f }, 0.65f, 0.58f, 1.55f },
 };
 struct HLightDef { V3 pos; float range; V3 col; float down; V3 mn, mx; };
 static const HLightDef H_LIGHTS[4] = {
-	{ { 0.20f, 2.30f, 0.20f }, 11.0f, { 1.55f, 1.47f, 1.30f }, 0.0f, { -4.34f, -0.05f, -3.84f }, { 4.34f, 2.66f, 3.84f } },
-	{ { -0.60f, 4.95f, 0.20f }, 11.0f, { 1.55f, 1.47f, 1.30f }, 0.0f, { -4.34f, 2.71f, -3.84f }, { 4.34f, 5.19f, 3.84f } },
-	{ { -2.30f, 3.62f, 3.30f }, 2.8f, { 1.80f, 1.40f, 0.90f }, 0.9f, { -4.34f, 2.71f, -3.84f }, { 4.34f, 5.19f, 3.84f } },
-	{ { -1.85f, 1.18f, -3.45f }, 2.4f, { 0.55f, 0.36f, 0.20f }, 0.0f, { -4.34f, -0.05f, -3.84f }, { 4.34f, 2.54f, 3.84f } },
+	{ { 0.20f, 2.30f, 0.20f }, 11.0f,{ 1.55f, 1.47f, 1.30f }, 0.0f,{ -4.34f, -0.05f, -3.84f },{ 4.34f, 2.66f, 3.84f } },
+	{ { -0.60f, 4.95f, 0.20f }, 11.0f,{ 1.55f, 1.47f, 1.30f }, 0.0f,{ -4.34f, 2.71f, -3.84f },{ 4.34f, 5.19f, 3.84f } },
+	{ { -2.30f, 3.62f, 3.30f }, 2.8f,{ 1.80f, 1.40f, 0.90f }, 0.9f,{ -4.34f, 2.71f, -3.84f },{ 4.34f, 5.19f, 3.84f } },
+	{ { -1.85f, 1.18f, -3.45f }, 2.4f,{ 0.55f, 0.36f, 0.20f }, 0.0f,{ -4.34f, -0.05f, -3.84f },{ 4.34f, 2.54f, 3.84f } },
 };
 struct HChair { float x, z, s, yb, sx, sz; };
 static const int H_NCHAIR = 5;
@@ -2351,12 +3381,12 @@ static const HChair H_CHAIRS[H_NCHAIR] = {
 };
 struct HTarget { int kind, idx; V3 mn, mx; };
 static const HTarget H_TGT[6] = {
-	{ 11, 0, { 2.05f, 1.00f, 3.45f }, { 2.45f, 1.40f, 3.84f } },
-	{ 11, 1, { 2.70f, 3.70f, -2.65f }, { 3.04f, 4.20f, -2.15f } },
-	{ 12, 0, { -2.14f, 0.00f, -3.84f }, { -1.16f, 1.16f, -3.08f } },
-	{ 13, 0, { -2.46f, 3.46f, 3.14f }, { -1.90f, 3.86f, 3.46f } },
-	{ 14, 0, { -2.90f, 0.88f, -3.80f }, { -2.20f, 1.25f, -3.25f } },
-	{ 15, 0, { -2.92f, 3.46f, 3.05f }, { -2.46f, 3.76f, 3.46f } },
+	{ 11, 0,{ 2.05f, 1.00f, 3.45f },{ 2.45f, 1.40f, 3.84f } },
+	{ 11, 1,{ 2.70f, 3.70f, -2.65f },{ 3.04f, 4.20f, -2.15f } },
+	{ 12, 0,{ -2.14f, 0.00f, -3.84f },{ -1.16f, 1.16f, -3.08f } },
+	{ 13, 0,{ -2.46f, 3.46f, 3.14f },{ -1.90f, 3.86f, 3.46f } },
+	{ 14, 0,{ -2.90f, 0.88f, -3.80f },{ -2.20f, 1.25f, -3.25f } },
+	{ 15, 0,{ -2.92f, 3.46f, 3.05f },{ -2.46f, 3.76f, 3.46f } },
 };
 static const V3 H_BED_SIT = { -3.675f, 3.34f, -3.00f }, H_BED_STAND = { -2.65f, 2.77f, -2.60f };
 
@@ -2476,7 +3506,7 @@ static void hzPot(Verts& v, V3 c, float r, float h) {
 		pushV(v, sl, up, sc); pushV(v, sl + d0 * (r - wt), up, sc); pushV(v, sl + d1 * (r - wt), up, sc);
 	}
 
-	const V3 cc[7] = { { 0.90f, 0.45f, 0.10f }, { 0.88f, 0.78f, 0.52f }, { 0.55f, 0.75f, 0.30f }, { 0.55f, 0.32f, 0.20f }, { 0.90f, 0.46f, 0.12f }, { 0.86f, 0.76f, 0.50f }, { 0.60f, 0.80f, 0.32f } };
+	const V3 cc[7] = { { 0.90f, 0.45f, 0.10f },{ 0.88f, 0.78f, 0.52f },{ 0.55f, 0.75f, 0.30f },{ 0.55f, 0.32f, 0.20f },{ 0.90f, 0.46f, 0.12f },{ 0.86f, 0.76f, 0.50f },{ 0.60f, 0.80f, 0.32f } };
 	const float px[7] = { -0.05f, 0.04f, 0.00f, -0.02f, 0.06f, -0.07f, 0.03f }, pz[7] = { 0.03f, -0.04f, 0.07f, -0.06f, 0.05f, -0.03f, 0.00f };
 	for (int k = 0; k < 7; k++)
 		addBlob(v, c + V3{ px[k], h * 0.80f, pz[k] }, { 0.032f, 0.022f, 0.032f }, (float)k * 1.7f, cc[k]);
@@ -2508,14 +3538,14 @@ static void buildHouseGeometry(HouseVerts& H) {
 
 	struct WinDef { int axis; float c0, c1; int ext; float a0, a1, y0, y1; };
 	const WinDef wins[] = {
-		{ 0, 3.8f, 4.0f, 1, -3.2f, -1.6f, 0.9f, 2.0f }, { 0, 3.8f, 4.0f, 1, -0.8f, 0.8f, 0.9f, 2.0f },
-		{ 0, 3.8f, 4.0f, 1, -3.2f, -1.6f, 3.65f, 4.75f }, { 0, 3.8f, 4.0f, 1, -0.8f, 0.8f, 3.65f, 4.75f },
-		{ 0, -4.0f, -3.8f, -1, -2.95f, -2.05f, 1.15f, 2.05f }, { 0, -4.0f, -3.8f, -1, 1.0f, 2.4f, 0.9f, 2.0f }, { 0, -4.0f, -3.8f, -1, -1.0f, 0.6f, 3.65f, 4.75f },
-		{ 1, -4.5f, -4.3f, -1, 0.6f, 2.2f, 0.9f, 2.0f }, { 1, -4.5f, -4.3f, -1, -0.2f, 1.4f, 3.65f, 4.75f },
-		{ 1, 4.3f, 4.5f, 1, 1.0f, 2.4f, 0.9f, 2.0f }, { 1, 4.3f, 4.5f, 1, 1.0f, 2.4f, 3.65f, 4.75f },
+		{ 0, 3.8f, 4.0f, 1, -3.2f, -1.6f, 0.9f, 2.0f },{ 0, 3.8f, 4.0f, 1, -0.8f, 0.8f, 0.9f, 2.0f },
+		{ 0, 3.8f, 4.0f, 1, -3.2f, -1.6f, 3.65f, 4.75f },{ 0, 3.8f, 4.0f, 1, -0.8f, 0.8f, 3.65f, 4.75f },
+		{ 0, -4.0f, -3.8f, -1, -2.95f, -2.05f, 1.15f, 2.05f },{ 0, -4.0f, -3.8f, -1, 1.0f, 2.4f, 0.9f, 2.0f },{ 0, -4.0f, -3.8f, -1, -1.0f, 0.6f, 3.65f, 4.75f },
+		{ 1, -4.5f, -4.3f, -1, 0.6f, 2.2f, 0.9f, 2.0f },{ 1, -4.5f, -4.3f, -1, -0.2f, 1.4f, 3.65f, 4.75f },
+		{ 1, 4.3f, 4.5f, 1, 1.0f, 2.4f, 0.9f, 2.0f },{ 1, 4.3f, 4.5f, 1, 1.0f, 2.4f, 3.65f, 4.75f },
 	};
 	struct WallDef { int axis; float c0, c1; int ext; float a0, a1; };
-	const WallDef walls[4] = { { 0, 3.8f, 4.0f, 1, -4.5f, 4.5f }, { 0, -4.0f, -3.8f, -1, -4.5f, 4.5f }, { 1, -4.5f, -4.3f, -1, -3.8f, 3.8f }, { 1, 4.3f, 4.5f, 1, -3.8f, 3.8f } };
+	const WallDef walls[4] = { { 0, 3.8f, 4.0f, 1, -4.5f, 4.5f },{ 0, -4.0f, -3.8f, -1, -4.5f, 4.5f },{ 1, -4.5f, -4.3f, -1, -3.8f, 3.8f },{ 1, 4.3f, 4.5f, 1, -3.8f, 3.8f } };
 	for (int w = 0; w < 4; w++) {
 		const WallDef& W = walls[w];
 		std::vector<WOpen> o1, o2;
@@ -2699,7 +3729,7 @@ static void buildHouseGeometry(HouseVerts& H) {
 
 		rect(sc, 0.02f, 0.08f, 0.02f, 0.08f, 2, { 0.25f, 0.55f, 0.95f });
 
-		const V3 ic[4] = { { 0.98f, 0.60f, 0.15f }, { 0.35f, 0.85f, 0.45f }, { 0.95f, 0.40f, 0.65f }, { 0.98f, 0.88f, 0.30f } };
+		const V3 ic[4] = { { 0.98f, 0.60f, 0.15f },{ 0.35f, 0.85f, 0.45f },{ 0.95f, 0.40f, 0.65f },{ 0.98f, 0.88f, 0.30f } };
 
 		for (int k = 0; k < 4; k++) rect(sc, 0.12f + 0.07f * k, 0.17f + 0.07f * k, 0.025f, 0.075f, 2, ic[k]);
 
@@ -2735,7 +3765,7 @@ static void buildHouseGeometry(HouseVerts& H) {
 
 		H.pcStatic = sc;
 
-		const V3 bc[6] = { { 0.95f, 0.35f, 0.35f }, { 0.98f, 0.65f, 0.20f }, { 0.95f, 0.90f, 0.30f }, { 0.40f, 0.85f, 0.40f }, { 0.30f, 0.60f, 0.95f }, { 0.65f, 0.45f, 0.90f } };
+		const V3 bc[6] = { { 0.95f, 0.35f, 0.35f },{ 0.98f, 0.65f, 0.20f },{ 0.95f, 0.90f, 0.30f },{ 0.40f, 0.85f, 0.40f },{ 0.30f, 0.60f, 0.95f },{ 0.65f, 0.45f, 0.90f } };
 
 		for (int k = 0; k < 6; k++) { Verts b; addBoxR(b, -0.5f, 0.5f, 0.0f, 1.0f, ZF(4), PC_ZB, bc[k]); H.pcBar[k] = b; }
 
@@ -2770,7 +3800,7 @@ static Verts g_colExtra;
 
 static void addBoxShade(Verts& v, V3 c, V3 r, V3 u, V3 f, V3 h, V3 col, float lum) {
 	V3 ax[3] = { r, u, f }; float hs[3] = { h.x, h.y, h.z };
-	static const float fac[3][2] = { { 0.78f, 0.88f }, { 0.55f, 1.0f }, { 0.70f, 0.93f } };
+	static const float fac[3][2] = { { 0.78f, 0.88f },{ 0.55f, 1.0f },{ 0.70f, 0.93f } };
 	for (int k = 0; k < 3; k++) for (int sg = -1; sg <= 1; sg += 2) {
 		if (k == 1 && sg < 0) continue;
 		int a = (k + 1) % 3, b = (k + 2) % 3;
@@ -3011,8 +4041,8 @@ static Verts buildScenery() {
 
 	std::vector<V3> housePos; std::vector<float> bldR;
 	g_bldInter.clear(); g_bldGlass.clear(); g_colExtra.clear();
-	const V3 walls[6] = { { 0.86f, 0.84f, 0.78f }, { 0.78f, 0.72f, 0.62f }, { 0.70f, 0.74f, 0.78f }, { 0.66f, 0.45f, 0.38f }, { 0.82f, 0.82f, 0.80f }, { 0.60f, 0.64f, 0.60f } };
-	const V3 bands[4] = { { 0.46f, 0.47f, 0.50f }, { 0.74f, 0.74f, 0.72f }, { 0.34f, 0.38f, 0.44f }, { 0.58f, 0.55f, 0.50f } };
+	const V3 walls[6] = { { 0.86f, 0.84f, 0.78f },{ 0.78f, 0.72f, 0.62f },{ 0.70f, 0.74f, 0.78f },{ 0.66f, 0.45f, 0.38f },{ 0.82f, 0.82f, 0.80f },{ 0.60f, 0.64f, 0.60f } };
+	const V3 bands[4] = { { 0.46f, 0.47f, 0.50f },{ 0.74f, 0.74f, 0.72f },{ 0.34f, 0.38f, 0.44f },{ 0.58f, 0.55f, 0.50f } };
 	auto tryBuilding = [&](float x, float z, float yaw, int minF, int maxF) {
 		float h;
 		if (!landOK(x, z, 48.0f, 0.12f, 70.0f, h)) return false;
@@ -4287,14 +5317,14 @@ struct GfxParam {
 	float ssao, bloom, shafts, cloud, detail, water, vol, bounce2;
 };
 static const GfxParam GFX[7] = {
-	{  0, 0.000f, 0, 0.0f, 0, 0,    0, 0, 0, 2, 0,   0, 0.0f,  0.00f, 0.00f, 0, 0, 2, 0, 0, 0 },
+	{ 0, 0.000f, 0, 0.0f, 0, 0,    0, 0, 0, 2, 0,   0, 0.0f,  0.00f, 0.00f, 0, 0, 2, 0, 0, 0 },
 
-	{  1, 0.000f, 0, 0.0f, 0, 0,  350, 1, 1, 2, 0,   0, 0.0f,  0.30f, 0.30f, 1, 1, 2, 1, 0, 0 },
-	{  2, 0.045f, 2, 3.5f, 0, 0,  800, 1, 1, 2, 1,   2, 1.6f,  0.35f, 0.35f, 1, 2, 3, 1, 0, 0 },
-	{  3, 0.025f, 2, 4.5f, 2, 1, 1400, 1, 1, 1, 1,   2, 1.3f,  0.00f, 0.40f, 1, 2, 3, 2, 0, 0 },
-	{  4, 0.005f, 4, 2.5f, 6, 1, 3000, 1, 1, 1, 1,   4, 1.6f,  0.00f, 0.45f, 1, 2, 3, 2, 0, 0 },
-	{  5, 0.004f, 5, 3.0f, 8, 1, 3000, 1, 1, 1, 1,   4, 1.5f,  0.00f, 0.50f, 1, 2, 3, 2, 4, 0 },
-	{  6, 0.003f, 6, 3.5f, 6, 1, 3000, 1, 1, 1, 1,   4, 1.4f,  0.00f, 0.55f, 1, 2, 3, 2, 6, 1 },
+	{ 1, 0.000f, 0, 0.0f, 0, 0,  350, 1, 1, 2, 0,   0, 0.0f,  0.30f, 0.30f, 1, 1, 2, 1, 0, 0 },
+	{ 2, 0.045f, 2, 3.5f, 0, 0,  800, 1, 1, 2, 1,   2, 1.6f,  0.35f, 0.35f, 1, 2, 3, 1, 0, 0 },
+	{ 3, 0.025f, 2, 4.5f, 2, 1, 1400, 1, 1, 1, 1,   2, 1.3f,  0.00f, 0.40f, 1, 2, 3, 2, 0, 0 },
+	{ 4, 0.005f, 4, 2.5f, 6, 1, 3000, 1, 1, 1, 1,   4, 1.6f,  0.00f, 0.45f, 1, 2, 3, 2, 0, 0 },
+	{ 5, 0.004f, 5, 3.0f, 8, 1, 3000, 1, 1, 1, 1,   4, 1.5f,  0.00f, 0.50f, 1, 2, 3, 2, 4, 0 },
+	{ 6, 0.003f, 6, 3.5f, 6, 1, 3000, 1, 1, 1, 1,   4, 1.4f,  0.00f, 0.55f, 1, 2, 3, 2, 6, 1 },
 };
 // 疑似レイトレーシング: BVHの光線追跡は行わず、画面内の深度と色から影と反射を光線追跡する
 static const GfxParam GFX_PSEUDO = { 0, 0.000f, 0, 0.0f, 0, 0, 0, 1, 1, 2, 1, 0, 0.0f, 0.40f, 0.35f, 1, 2, 3, 2, 0, 0 };
@@ -4573,8 +5603,8 @@ static M4 inverse4(const M4& a) {
 
 #ifdef HAVE_DXC
 static HMODULE g_dxcMod = nullptr; static DxcCreateInstanceProc g_dxcCreate = nullptr;
-static const GUID kClsidDxcCompiler = { 0x73e22d93, 0xe6ce, 0x47f3, { 0xb5, 0xbf, 0xf0, 0x66, 0x4f, 0x39, 0xc1, 0xb0 } };
-static const GUID kClsidDxcUtils = { 0x6245d6af, 0x66e0, 0x48fd, { 0x80, 0xb4, 0x4d, 0x27, 0x17, 0x96, 0x74, 0x8c } };
+static const GUID kClsidDxcCompiler = { 0x73e22d93, 0xe6ce, 0x47f3,{ 0xb5, 0xbf, 0xf0, 0x66, 0x4f, 0x39, 0xc1, 0xb0 } };
+static const GUID kClsidDxcUtils = { 0x6245d6af, 0x66e0, 0x48fd,{ 0x80, 0xb4, 0x4d, 0x27, 0x17, 0x96, 0x74, 0x8c } };
 static bool tryDxcDir(const std::wstring& d) {
 	if (GetFileAttributesW((d + L"dxcompiler.dll").c_str()) == INVALID_FILE_ATTRIBUTES) return false;
 	LoadLibraryW((d + L"dxil.dll").c_str());
@@ -4637,7 +5667,7 @@ static bool compileShader(const char* src, const char* entry, const char* kind, 
 		return ok;
 	}
 #endif
-	D3D_SHADER_MACRO mac[] = { { "USE_DXR", "0" }, { nullptr, nullptr } };
+	D3D_SHADER_MACRO mac[] = { { "USE_DXR", "0" },{ nullptr, nullptr } };
 	std::string prof = std::string(kind) + "_5_1";
 	ID3DBlob* b = nullptr, * e = nullptr;
 	HRESULT hr = D3DCompile(src, strlen(src), nullptr, mac, nullptr, entry, prof.c_str(), D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &b, &e);
@@ -4667,8 +5697,8 @@ static bool compileJobs(const ShJob* jobs, size_t n, bool dxr, bool lowPrio = fa
 // 起動時に必要な分だけ（グラフィック「オフ」の描画用 vs/psl と、HUD・メニュー用）
 static bool compileLite() {
 	const ShJob jobs[6] = {
-		{ kShader, "vs", "vs", &g_bVS }, { kShader, "psl", "ps", &g_bPSL },
-		{ kHudShader, "hvs", "vs", &g_bHVS }, { kHudShader, "hps", "ps", &g_bHPS }, { kHudShader, "ovs", "vs", &g_bOVS }, { kHudShader, "ops", "ps", &g_bOPS } };
+		{ kShader, "vs", "vs", &g_bVS },{ kShader, "psl", "ps", &g_bPSL },
+		{ kHudShader, "hvs", "vs", &g_bHVS },{ kHudShader, "hps", "ps", &g_bHPS },{ kHudShader, "ovs", "vs", &g_bOVS },{ kHudShader, "ops", "ps", &g_bOPS } };
 	return compileJobs(jobs, 6, g_useDXR);
 }
 static ID3D12RootSignature* makeRS(bool scene) {
@@ -4804,8 +5834,8 @@ static void bgLoadWorker() {
 		};
 
 	// ---- 段階1（疑似RT）----
-	const ShJob sw1[4] = { { kShader, "vs", "vs", &b.vs }, { kHudShader, "ovs", "vs", &b.ovs },
-		{ kShader, "ps", "ps", &b.ps }, { kShader, "pps", "ps", &b.pp } };
+	const ShJob sw1[4] = { { kShader, "vs", "vs", &b.vs },{ kHudShader, "ovs", "vs", &b.ovs },
+		{ kShader, "ps", "ps", &b.ps },{ kShader, "pps", "ps", &b.pp } };
 	if (!compileJobs(sw1, 4, false, true) || g_bgCancel.load()) { g_bgState.store(BG_DONE_FAIL); return; }
 	{
 		auto f0 = mk(g_rsScene, b.vs, nullptr, kElScene, 4, BL_MASK0, DP_LT_WRITE, 4, 2);
@@ -4826,7 +5856,7 @@ static void bgLoadWorker() {
 	if (g_bgCancel.load() || !hwWanted) { g_bgState.store(BG_DONE_OK); return; }
 
 	// ---- 段階3（HW-RT、DXIL）----
-	const ShJob hw3[3] = { { kShader, "ps", "ps", &b.hps }, { kShader, "pps", "ps", &b.hpp }, { kShader, "dns", "ps", &b.hdn } };
+	const ShJob hw3[3] = { { kShader, "ps", "ps", &b.hps },{ kShader, "pps", "ps", &b.hpp },{ kShader, "dns", "ps", &b.hdn } };
 	bool ok = compileJobs(hw3, 3, true, true) && !g_bgCancel.load();
 	if (ok) {
 		auto h0 = mk(g_rsScene, g_bVS, nullptr, kElScene, 4, BL_MASK0, DP_LT_WRITE, 4, 2);
@@ -5179,7 +6209,7 @@ static float g_respR[4] = {};
 static bool  g_respHover = false;
 
 static void hQuad(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, Col c) {
-	HV q[4] = { { x0,y0,c }, { x1,y1,c }, { x2,y2,c }, { x3,y3,c } };
+	HV q[4] = { { x0,y0,c },{ x1,y1,c },{ x2,y2,c },{ x3,y3,c } };
 	const int idx[6] = { 0, 1, 2, 0, 2, 3 };
 	for (int i : idx) g_hv.push_back(q[i]);
 }
@@ -5351,7 +6381,7 @@ static void buildHud(const HudInfo& in) {
 		hText(L"レバーサー", (x0 + x1) / 2, y0 + 6 * S, 1, cWhite, TA_CENTER);
 		const wchar_t* nm[3] = { L"前", L"切", L"後" };
 		const int val[3] = { 1, 0, -1 };
-		const Col cc[3] = { { 0.30f, 1.00f, 0.45f, 1 }, { 1.00f, 1.00f, 1.00f, 1 }, { 1.00f, 0.70f, 0.20f, 1 } };
+		const Col cc[3] = { { 0.30f, 1.00f, 0.45f, 1 },{ 1.00f, 1.00f, 1.00f, 1 },{ 1.00f, 0.70f, 0.20f, 1 } };
 		for (int j = 0; j < 3; j++) {
 			float y = y0 + 30 * S + j * rh;
 			bool cur = (val[j] == in.rev);
@@ -5456,7 +6486,7 @@ static void buildHud(const HudInfo& in) {
 		float pw = 520 * S, ph = 572 * S, x0 = W / 2 - pw / 2, y0 = H / 2 - ph / 2;
 		hRect(x0, y0, x0 + pw, y0 + ph, Col{ 0.02f, 0.03f, 0.06f, 0.85f });
 		hText(L"一時停止中", W / 2, y0 + 12 * S, 2, cWhite, TA_CENTER);
-		hText(L"SilkHat 3D WalkingSimulator Ver.26.11.24", W / 2, y0 + 44 * S, 0, RGB(65, 105, 225), TA_CENTER);
+		hText(L"SilkHat 3D WalkingSimulator Ver.26.11.26", W / 2, y0 + 44 * S, 0, RGB(65, 105, 225), TA_CENTER);
 		for (int k = 0; k < 2; k++) {
 			float bx0 = x0 + 90 * S, bx1 = x0 + pw - 90 * S, by0 = y0 + 76 * S + k * 36 * S, by1 = by0 + 30 * S;
 			g_menuR[k][0] = bx0; g_menuR[k][1] = by0; g_menuR[k][2] = bx1; g_menuR[k][3] = by1;
@@ -5810,7 +6840,7 @@ static void hudRasterText() {
 
 
 static void appendLeaves(Verts& v) {
-	Verts lf[2] = { buildDoorLeaf(-1.0f), buildDoorLeaf(1.0f) };
+	Verts lf[2] = { buildDoorLeaf(-1.0f, LIV_BASE), buildDoorLeaf(1.0f, LIV_BASE) };
 	for (int s = 0; s < 2; s++) for (int k = 0; k < 3; k++) for (int dir = -1; dir <= 1; dir += 2) {
 		float oz = DOOR_Z[k] + dir * LEAF_OFS;
 		for (Vtx x : lf[s]) { x.p.z += oz; v.push_back(x); }
@@ -5819,7 +6849,7 @@ static void appendLeaves(Verts& v) {
 
 
 static void appendCabDoors(Verts& v, float zs) {
-	for (int s = -1; s <= 1; s += 2) { Verts d = buildCabDoor((float)s, zs); v.insert(v.end(), d.begin(), d.end()); }
+	for (int s = -1; s <= 1; s += 2) { Verts d = buildCabDoor((float)s, zs, LIV_BASE); v.insert(v.end(), d.begin(), d.end()); }
 }
 
 
@@ -5867,7 +6897,7 @@ struct ColGrid {
 	std::vector<uint32_t> cellStart, items, big;
 	float ox = 0, oz = 0, cs = 1, inv = 1; int nx = 0, nz = 0;
 
-	void build(const Verts& v, float cellSize, bool skipWater) {
+	void build(const Verts& v, float cellSize, bool skipWater, bool withCeil = false) {
 		cs = cellSize; inv = 1.0f / cs;
 		tris.clear(); cellStart.clear(); items.clear(); big.clear();
 		tris.reserve(v.size() / 3);
@@ -5881,8 +6911,8 @@ struct ColGrid {
 			n = n * (1.0f / sqrtf(l2));
 			uint8_t k = 0;
 			if (fabsf(n.y) >= 0.55f) {
-				if ((p0.n.y + p1.n.y + p2.n.y) < 0.0f) continue;
-				k = 1;
+				if ((p0.n.y + p1.n.y + p2.n.y) < 0.0f) { if (!withCeil) continue; k = 2; }
+				else k = 1;
 			}
 			tris.push_back({ p0.p, p1.p, p2.p, k });
 		}
@@ -5939,6 +6969,7 @@ struct ColGrid {
 			float mn = std::min(t.a.y, std::min(t.b.y, t.c.y)), mx = std::max(t.a.y, std::max(t.b.y, t.c.y));
 			if (mn > c.y + r || mx < c.y - r) return;
 			V3 q = closestPtTri(c, t.a, t.b, t.c);
+			if (t.kind == 2) return;
 			if (t.kind == 1 && q.y <= thr) return;
 			V3 d = c - q; float d2 = dot(d, d);
 			if (d2 >= r2) return;
@@ -5970,6 +7001,24 @@ struct ColGrid {
 		return best;
 	}
 
+
+	float ceilAt(float x, float z, float yMin) const {
+		float best = 1e30f;
+		each(x, z, x, z, [&](const CTri& t) {
+			if (t.kind != 2) return;
+			if (std::max(t.a.y, std::max(t.b.y, t.c.y)) < yMin) return;
+			const float d = (t.b.z - t.c.z) * (t.a.x - t.c.x) + (t.c.x - t.b.x) * (t.a.z - t.c.z);
+			if (fabsf(d) < 1e-9f) return;
+			const float l1 = ((t.b.z - t.c.z) * (x - t.c.x) + (t.c.x - t.b.x) * (z - t.c.z)) / d;
+			const float l2 = ((t.c.z - t.a.z) * (x - t.c.x) + (t.a.x - t.c.x) * (z - t.c.z)) / d;
+			const float l3 = 1.0f - l1 - l2;
+			const float e = -1e-4f;
+			if (l1 < e || l2 < e || l3 < e) return;
+			const float y = l1 * t.a.y + l2 * t.b.y + l3 * t.c.y;
+			if (y >= yMin && y < best) best = y;
+			});
+		return best;
+	}
 
 	float rayFirst(V3 o, V3 d, float maxT) const {
 		float best = 1e30f;
@@ -6011,15 +7060,15 @@ static void buildCollision(const Verts& worldAll) {
 	if (g_hs.valid) for (int d = 0; d < NHD; d++) g_colHDoor[d].build(hzDoorWorld(d, 0.0f), 0.5f, false);
 	const bool hd[3] = { true, false, false }, tl[3] = { false, false, true };
 	for (int k = 0; k < 3; k++) {
-		Verts v = buildCarBody(hd[k], tl[k]);
+		Verts v = buildCarBody(hd[k], tl[k], LIV_BASE);
 		Verts g = buildCarGlass(hd[k], tl[k]); v.insert(v.end(), g.begin(), g.end());
 		if (hd[k]) { Verts w = buildWindscreen(1.0f); v.insert(v.end(), w.begin(), w.end()); }
 		if (tl[k]) { Verts w = buildWindscreen(-1.0f); v.insert(v.end(), w.begin(), w.end()); }
-		g_colCar[k].build(v, 0.5f, false);
+		g_colCar[k].build(v, 0.5f, false, true);
 	}
 	for (int s = 0; s < 2; s++) {
 		const float sg = s ? 1.0f : -1.0f;
-		Verts lf = buildDoorLeaf(sg), gl = buildDoorGlass(sg), v;
+		Verts lf = buildDoorLeaf(sg, LIV_BASE), gl = buildDoorGlass(sg), v;
 		for (int k = 0; k < 3; k++) for (int dir = -1; dir <= 1; dir += 2) {
 			const float oz = DOOR_Z[k] + dir * LEAF_OFS;
 			for (Vtx x : lf) { x.p.z += oz; v.push_back(x); }
@@ -6029,7 +7078,7 @@ static void buildCollision(const Verts& worldAll) {
 	}
 	for (int s = 0; s < 2; s++) for (int e = 0; e < 2; e++) {
 		const float sg = s ? 1.0f : -1.0f, zs = e ? -1.0f : 1.0f;
-		Verts v = buildCabDoor(sg, zs), g = buildCabDoorGlass(sg, zs);
+		Verts v = buildCabDoor(sg, zs, LIV_BASE), g = buildCabDoorGlass(sg, zs);
 		v.insert(v.end(), g.begin(), g.end());
 		g_colCab[s][e].build(v, 0.5f, false);
 	}
@@ -6154,6 +7203,25 @@ static float fpGroundAt(float x, float z, float yMax, const M4* cw, const M4* in
 	}
 	if (ci >= 0 && gc >= gw - 0.02f) { src = ci; return gc; }
 	src = -1; return gw;
+}
+
+// 車内の天井（頭の上）に当たったら、上への速さを止める
+static void fpCeiling(const M4* cw, const M4* inv) {
+	static const float FP_HEAD = 1.75f;   // 足元から頭のてっぺんまで
+	FPState& f = g_fp;
+	if (f.seat) return;
+	for (int i = 0; i < NUM_CARS; i++) {
+		if (!fpNearCar(cw[i], f.pos)) continue;
+		const V3 lc = xfPoint(inv[i], { f.pos.x, f.pos.y + 0.05f, f.pos.z });
+		const ColGrid& g = g_colCar[i == 0 ? 0 : (i == NUM_CARS - 1 ? 2 : 1)];
+		const float ceilY = g.ceilAt(lc.x, lc.z, lc.y);
+		if (ceilY > 1e29f) continue;
+		const float headTop = lc.y + FP_HEAD;
+		if (headTop > ceilY) {
+			f.pos.y += ceilY - headTop;   // 車両の回転は上下方向を変えないので、高さの差はそのまま
+			if (f.vy > 0.0f) f.vy = 0.0f;
+		}
+	}
 }
 
 static void fpGround(float dts, const M4* cw, const M4* inv, int& srcCenter) {
@@ -6283,7 +7351,7 @@ static void fpAim(const M4* cw, const M4* inv, float dl, float dr, const float* 
 
 		const bool inCab = head ? (o.z > 8.0f) : (tail ? (o.z < -8.0f) : false);
 		if (!inCab) {
-			const float segs[4][2] = { { -9.9f, -DOOR_Z[2] - DOOR_HW }, { -5.35f, -0.65f }, { 0.65f, 5.35f }, { DOOR_Z[2] + DOOR_HW, 9.9f } };
+			const float segs[4][2] = { { -9.9f, -DOOR_Z[2] - DOOR_HW },{ -5.35f, -0.65f },{ 0.65f, 5.35f },{ DOOR_Z[2] + DOOR_HW, 9.9f } };
 			for (int sgi = -1; sgi <= 1; sgi += 2) {
 				const float sg = (float)sgi;
 				for (int k = 0; k < 4; k++) {
@@ -6444,6 +7512,7 @@ static void fpUpdate(float dt, bool input, const M4* cw, float dl, float dr, con
 			f.pos.x += mv.x / n; f.pos.z += mv.z / n;
 			if (!f.grounded) { f.pos.x += f.airVel.x * dts; f.pos.z += f.airVel.z * dts; }
 			fpCollide(cw, inv, dl, dr, cab);
+			fpCeiling(cw, inv);
 			fpGround(dts, cw, inv, src);
 			if (f.grounded) f.airVel = { 0, 0, 0 };
 		}
@@ -6593,7 +7662,7 @@ static void ledUpdate(int bi) {
 	memset(g_ledBits, 0, (size_t)LED_W * LED_H * 4);
 	for (int r = 0; r < 4; r++) TextOutW(g_ledDC, 4, 2 + r * 19, txt[r].c_str(), (int)txt[r].size());
 	GdiFlush();
-	const V3 rowCol[4] = { { 0.35f, 1.0f, 0.45f }, { 1.0f, 0.72f, 0.12f }, { 1.0f, 0.72f, 0.12f }, { 1.0f, 0.72f, 0.12f } };
+	const V3 rowCol[4] = { { 0.35f, 1.0f, 0.45f },{ 1.0f, 0.72f, 0.12f },{ 1.0f, 0.72f, 0.12f },{ 1.0f, 0.72f, 0.12f } };
 	Verts v; v.reserve(8000);
 	const V3 up = B.u;
 	for (int y = 0; y < LED_H; y++) {
@@ -6623,6 +7692,108 @@ static void ledUpdate(int bi) {
 	dynSet(L.dm, v);
 }
 
+
+// ---- 方向幕（LED 方式）。電光掲示板と同じ：GDI で文字を描き、点灯した画素を面にする。車両のローカル座標で作る ----
+static const int DEST_H = 40;
+struct DotDIB { HDC dc = nullptr; HBITMAP bmp = nullptr; DWORD* bits = nullptr; HFONT font = nullptr; int W = 0; };
+static DotDIB g_dot[3];   // 0: 運転席の右の板, 1: 運転席の左の板, 2: 側面の方向幕
+struct DestBoard { DynMesh dm; bool made = false; unsigned hash = 0; };
+static std::vector<DestBoard> g_dest;   // 運転席の板 [列車 * 4 + 車端 * 2 + 左右]
+static std::vector<DestBoard> g_side;   // 側面の方向幕 [列車 * 8 + 車両 * 2 + 左右]
+static void dotInit(DotDIB& d, int W) {
+	HDC sdc = GetDC(nullptr); d.dc = CreateCompatibleDC(sdc); ReleaseDC(nullptr, sdc);
+	BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); bi.bmiHeader.biWidth = W; bi.bmiHeader.biHeight = -DEST_H;
+	bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32; bi.bmiHeader.biCompression = BI_RGB;
+	d.bmp = CreateDIBSection(d.dc, &bi, DIB_RGB_COLORS, (void**)&d.bits, nullptr, 0);
+	if (!d.bmp || !d.bits) { d.bits = nullptr; return; }
+	d.W = W;
+	SelectObject(d.dc, d.bmp);
+	d.font = CreateFontW(-30, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, FIXED_PITCH | FF_MODERN, L"MS Gothic");
+	SelectObject(d.dc, d.font);
+	SetBkMode(d.dc, TRANSPARENT); SetTextColor(d.dc, RGB(255, 255, 255));
+}
+static void destInit() {
+	if (!g_dest.empty()) return;
+	g_dest.resize(128); g_side.resize(256);
+	dotInit(g_dot[0], 160); dotInit(g_dot[1], 108); dotInit(g_dot[2], 300);
+}
+// 運転席の行先：運行中は左に終着駅・右に種別、終電後の回送は右だけ「回送」、車庫の中は何も出さない
+static void destTexts(const Train& T, std::wstring& left, std::wstring& right) {
+	left.clear(); right.clear();
+	const bool inService = T.st == TS_PULL || T.st == TS_ORIGIN || T.st == TS_RUN || T.st == TS_DWELL || (T.st == TS_TERM && T.trip >= 0);
+	const bool returning = T.st == TS_TOYARD || (T.st == TS_TERM && T.trip < 0);
+	if (inService) { right = TYPE_NAME[T.type]; left = g_stations[g_order[T.line][g_nStops - 1]].name; }
+	else if (returning) right = L"回送";
+}
+// 側面の方向幕：運行中は「普通 | 終着駅」、回送は「回　送」
+static void sideText(const Train& T, std::wstring& s) {
+	std::wstring l, r; destTexts(T, l, r);
+	if (!l.empty()) s = std::wstring(TYPE_NAME[T.type]) + L" | " + l;
+	else if (!r.empty()) s = L"回　送";
+	else s.clear();
+}
+static void destTri(Verts& v, V3 a, V3 b, V3 c, V3 n, V3 col) {
+	if (dot(cross(b - a, c - a), n) < 0.0f) std::swap(b, c);
+	v.push_back({ a, n, col, 2.0f }); v.push_back({ b, n, col, 2.0f }); v.push_back({ c, n, col, 2.0f });
+}
+// 文字を描いて面を作る（文字が変わったときだけ）。c = 板の中心、r = 見る人から見て左へ向くベクトル、f = 外向き、bw×bh = 板の大きさ(m)
+static void dotRender(DestBoard& D, const DotDIB& dd, const std::wstring& left, const std::wstring& right, V3 c, V3 r, V3 f, float bw, float bh) {
+	if (!dd.bits) return;
+	unsigned h = 2166136261u;
+	for (wchar_t ch : left) { h ^= (unsigned)ch; h *= 16777619u; }
+	h ^= 0x7Fu; h *= 16777619u;
+	for (wchar_t ch : right) { h ^= (unsigned)ch; h *= 16777619u; }
+	if (D.made && h == D.hash) return;
+	D.hash = h;
+	const int W = dd.W;
+	memset(dd.bits, 0, (size_t)W * DEST_H * 4);
+	if (left.empty() || right.empty()) {
+		const std::wstring& t = left.empty() ? right : left;
+		RECT full = { 1, 0, W - 1, DEST_H };
+		if (!t.empty()) DrawTextW(dd.dc, t.c_str(), (int)t.size(), &full, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+	}
+	else {
+		const int split = W * 60 / 100;
+		RECT rl = { 1, 0, split, DEST_H }, rr = { split, 0, W, DEST_H };
+		DrawTextW(dd.dc, left.c_str(), (int)left.size(), &rl, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+		DrawTextW(dd.dc, right.c_str(), (int)right.size(), &rr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	}
+	GdiFlush();
+	const float px = bw / W, py = bh / DEST_H;
+	const V3 up = { 0.0f, 1.0f, 0.0f }, col = { 1.0f, 0.72f, 0.12f };
+	Verts v; v.reserve(8000);
+	for (int y = 0; y < DEST_H; y++) {
+		int x = 0;
+		while (x < W) {
+			if ((dd.bits[y * W + x] & 0xFF) < 100) { x++; continue; }
+			int x1 = x; while (x1 + 1 < W && (dd.bits[y * W + x1 + 1] & 0xFF) >= 100) x1++;
+			const float u0 = (x - W * 0.5f) * px, u1 = (x1 + 1 - W * 0.5f) * px;
+			const float yt = (DEST_H * 0.5f - y) * py, yb = yt - py * 0.86f;
+			const V3 o = c + f * 0.004f;
+			const V3 p0 = o - r * u0 + up * yt, p1 = o - r * u1 + up * yt, p2 = o - r * u1 + up * yb, p3 = o - r * u0 + up * yb;
+			destTri(v, p0, p1, p2, f, col); destTri(v, p0, p2, p3, f, col);
+			x = x1 + 1;
+		}
+	}
+	if (!D.made || (UINT)v.size() > D.dm.cap) {
+		if (D.made && D.dm.res) { D.dm.res->Unmap(0, nullptr); D.dm.res->Release(); }
+		D.dm = makeDyn((UINT)v.size() + 2048); D.made = true;
+	}
+	dynSet(D.dm, v);
+}
+// 運転席の板（side 0 = 右 / 1 = 左、運転席から見て）。板の幅は窓の幅に合わせる
+static void destCab(DestBoard& D, const std::wstring& left, const std::wstring& right, float zs, int side) {
+	const bool rightBoard = (side == 0);
+	const float bw = rightBoard ? 0.68f : 0.46f, cx = rightBoard ? -0.76f : 0.85f;
+	dotRender(D, rightBoard ? g_dot[0] : g_dot[1], left, right, { cx * zs, 3.01f, zs * 10.035f }, { zs, 0.0f, 0.0f }, { 0.0f, 0.0f, zs }, bw, 0.18f);
+}
+// 側面の方向幕（sg = +1 右側 / -1 左側、車体の外から見て）
+// 側面の下地の板（表示のみ。当たり判定には入れない）
+static Verts buildSidePlate(float sg) { Verts v; v3car::v3_sideDisplayPlate(v, sg); return v; }
+static Mesh g_sidePlateM[2];
+static void destSide(DestBoard& D, const std::wstring& text, int sg) {
+	dotRender(D, g_dot[2], text, std::wstring(), { sg * (v3car::XO + 0.004f), 3.19f, 0.0f }, { 0.0f, 0.0f, -(float)sg }, { (float)sg, 0.0f, 0.0f }, 1.20f, 0.14f);
+}
 
 static DynMesh g_dynLamp;
 static Mesh g_armMesh;
@@ -6744,12 +7915,20 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 	Mesh track = subMesh(world, 0, nTrack);
 	Mesh scenery = subMesh(world, nTrack, nScen);
 	Mesh bldInter = makeMesh(g_bldInter), bldGlass = makeMesh(g_bldGlass);
-	g_armMesh = makeMesh(buildArmVerts()); g_dynLamp = makeDyn(12000); ledInit();
-	Mesh bodyMid = makeMesh(buildCarBody(false, false));
-	Mesh bodyHead = makeMesh(buildCarBody(true, false));
-	Mesh bodyTail = makeMesh(buildCarBody(false, true));
-	Mesh doorLeafL = makeMesh(buildDoorLeaf(-1.0f));
-	Mesh doorLeafR = makeMesh(buildDoorLeaf(1.0f));
+	g_armMesh = makeMesh(buildArmVerts()); g_dynLamp = makeDyn(12000); ledInit(); destInit();
+	g_sidePlateM[0] = makeMesh(buildSidePlate(1.0f)); g_sidePlateM[1] = makeMesh(buildSidePlate(-1.0f));
+	Mesh bodyMidL[NUM_LIV], bodyHeadL[NUM_LIV], bodyTailL[NUM_LIV];
+	Mesh rtMeshL[NUM_LIV][3];
+	for (int li = 0; li < NUM_LIV; li++) {
+		bodyMidL[li] = makeMesh(buildCarBody(false, false, li));
+		bodyHeadL[li] = makeMesh(buildCarBody(true, false, li));
+		bodyTailL[li] = makeMesh(buildCarBody(false, true, li));
+	}
+	Mesh doorLeafL[NUM_LIV], doorLeafR[NUM_LIV];
+	for (int li = 0; li < NUM_LIV; li++) {
+		doorLeafL[li] = makeMesh(buildDoorLeaf(-1.0f, li));
+		doorLeafR[li] = makeMesh(buildDoorLeaf(1.0f, li));
+	}
 	Mesh glassMid = makeMesh(buildCarGlass(false, false));
 	Mesh glassHead = makeMesh(buildCarGlass(true, false));
 	Mesh glassTail = makeMesh(buildCarGlass(false, true));
@@ -6772,19 +7951,24 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 	Mesh lampOff = makeMesh(buildDoorLamp({ 0.05f, 0.20f, 0.08f }));
 	g_curE = 0.0f;
 
-	Mesh cabDoorM[2][2], cabGlassM[2][2];
-	for (int s = 0; s < 2; s++) for (int e = 0; e < 2; e++) {
-		cabDoorM[s][e] = makeMesh(buildCabDoor(s ? 1.0f : -1.0f, e ? -1.0f : 1.0f));
+	Mesh cabDoorM[NUM_LIV][2][2], cabGlassM[2][2];
+	for (int li = 0; li < NUM_LIV; li++) for (int s = 0; s < 2; s++) for (int e = 0; e < 2; e++)
+		cabDoorM[li][s][e] = makeMesh(buildCabDoor(s ? 1.0f : -1.0f, e ? -1.0f : 1.0f, li));
+	for (int s = 0; s < 2; s++) for (int e = 0; e < 2; e++)
 		cabGlassM[s][e] = makeMesh(buildCabDoorGlass(s ? 1.0f : -1.0f, e ? -1.0f : 1.0f));
-	}
 
 
 	Mesh rtMesh[3];
 	// 車両の代理メッシュ（遠くの車両の描画にも使う。軽い）。BVH/BLAS/TLAS の作成は重いので、レイトレーシングをオンにした時まで行わない
-	Verts rtV[3] = { buildCarBody(true, false), buildCarBody(false, false), buildCarBody(false, true) };
-	for (int k = 0; k < 3; k++) appendLeaves(rtV[k]);
-	appendCabDoors(rtV[0], 1.0f); appendCabDoors(rtV[2], -1.0f);
-	for (int k = 0; k < 3; k++) rtMesh[k] = makeMesh(rtV[k]);
+	Verts rtV[3];   // レイトレーシング用（元の塗装）
+	for (int li = 0; li < NUM_LIV; li++) {
+		Verts rv[3] = { buildCarBody(true, false, li), buildCarBody(false, false, li), buildCarBody(false, true, li) };
+		for (int k = 0; k < 3; k++) appendLeaves(rv[k]);
+		appendCabDoors(rv[0], 1.0f); appendCabDoors(rv[2], -1.0f);
+		for (int k = 0; k < 3; k++) rtMeshL[li][k] = makeMesh(rv[k]);
+		if (li == LIV_BASE) for (int k = 0; k < 3; k++) rtV[k] = rv[k];
+	}
+	for (int k = 0; k < 3; k++) rtMesh[k] = rtMeshL[LIV_BASE][k];
 	bool rtReady = false;   // レイトレーシング用データを作成済みか（グラフィックレベルが「オフ」のままなら作らない）
 	{   // 未作成の間も、ディスクリプタテーブルの中身が空にならないようヌル記述子を置いておく
 		D3D12_SHADER_RESOURCE_VIEW_DESC nb{}; nb.Format = DXGI_FORMAT_UNKNOWN; nb.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -7263,13 +8447,22 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 				const float ddx = w.m[3][0] - eye.x, ddy = w.m[3][1] - eye.y, ddz = w.m[3][2] - eye.z;
 				const float dd = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
 				if (dd > 1300.0f) continue;
-				if (dd > NEAR_D) { drawMesh(rtMesh[(i == 0) ? 0 : (i == NUM_CARS - 1) ? 2 : 1], vp, w); continue; }
-				Mesh bodyMesh = (i == 0) ? bodyHead : (i == NUM_CARS - 1) ? bodyTail : bodyMid;
+				if (dd > NEAR_D) { drawMesh(rtMeshL[T.liv][(i == 0) ? 0 : (i == NUM_CARS - 1) ? 2 : 1], vp, w); continue; }
+				Mesh bodyMesh = (i == 0) ? bodyHeadL[T.liv] : (i == NUM_CARS - 1) ? bodyTailL[T.liv] : bodyMidL[T.liv];
 				drawMesh(bodyMesh, vp, w);
+				if (dd < 80.0f && ti < 32) {   // 側面の方向幕（左右 2 枚、各車両）
+					drawMesh(g_sidePlateM[0], vp, w); drawMesh(g_sidePlateM[1], vp, w);
+					std::wstring sText; sideText(T, sText);
+					for (int sd = 0; sd < 2; sd++) {
+						DestBoard& D = g_side[ti * 8 + i * 2 + sd];
+						destSide(D, sText, sd == 0 ? 1 : -1);
+						if (D.dm.m.n) drawMesh(D.dm.m, vp, w);
+					}
+				}
 				for (int side = 0; side < 2; side++) {
 					float pos = (side == 0) ? T.doorL : T.doorR;
 					float sgn = (side == 0) ? -1.0f : 1.0f;
-					const Mesh& leaf = (side == 0) ? doorLeafL : doorLeafR;
+					const Mesh& leaf = (side == 0) ? doorLeafL[T.liv] : doorLeafR[T.liv];
 					float plug = smooth01(pos / 0.12f) * LEAF_PLUG;
 					float slide = smooth01((pos - 0.08f) / 0.92f) * LEAF_SLIDE;
 					for (int k = 0; k < 3; k++) for (int dir = -1; dir <= 1; dir += 2) {
@@ -7279,7 +8472,15 @@ int WINAPI wWinMain(_In_ HINSTANCE hi, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 				}
 				if (i == 0 || i == NUM_CARS - 1) {
 					const int en = (i == 0) ? 0 : 1; const float zs = (i == 0) ? 1.0f : -1.0f;
-					for (int s = 0; s < 2; s++) drawMesh(cabDoorM[s][en], vp, mul(cabDoorMat(s ? 1.0f : -1.0f, zs, T.cabPos[en * 2 + s]), w));
+					for (int s = 0; s < 2; s++) drawMesh(cabDoorM[T.liv][s][en], vp, mul(cabDoorMat(s ? 1.0f : -1.0f, zs, T.cabPos[en * 2 + s]), w));
+					if (dd < 80.0f) {   // 方向幕（左右 2 枚）
+						std::wstring dLeft, dRight; destTexts(T, dLeft, dRight);
+						for (int dside = 0; dside < 2; dside++) {
+							DestBoard& D = g_dest[ti * 4 + en * 2 + dside];
+							destCab(D, dside == 1 ? dLeft : std::wstring(), dside == 0 ? dRight : std::wstring(), zs, dside);
+							if (D.dm.m.n) drawMesh(D.dm.m, vp, w);
+						}
+					}
 					if (dd < 70.0f) {
 						const M4 cw = (i == 0) ? w : mul(cabRot, w);
 						drawMesh(mcHandle, vp, mul(basisMat({ 1,0,0 }, { 0,1,0 }, { 0,0,1 }, { MC_PIVOT[0], MC_PIVOT[1], MC_PIVOT[2] }), cw));
